@@ -14,6 +14,7 @@ from graphir.corrections import (
 )
 from graphir.hunts import HUNT_QUERIES
 from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, write_sigma_rules
+from graphir.navigator import generate_layer_from_findings, write_navigator_layer
 from graphir.investigation_log import InvestigationLog
 
 # --- Config ---
@@ -653,6 +654,50 @@ def generate_sigma_from_findings() -> str:
         _investigation_log.log_tool_call(
             "generate_sigma_from_findings", {},
             f"Generated {result['rules_written']} Sigma rules",
+        )
+
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# --- ATT&CK Navigator Layer ---
+
+
+@mcp.tool()
+def generate_attack_navigator() -> str:
+    """Generate a MITRE ATT&CK Navigator layer from investigation findings.
+
+    Runs find_evil, maps each finding to ATT&CK techniques, checks for
+    corrections, and produces a JSON layer file loadable in the ATT&CK
+    Navigator web tool (https://mitre-attack.github.io/attack-navigator/).
+
+    Color-coded by confidence:
+      Red    = CONFIRMED (structural evidence)
+      Orange = PARTIAL (some evidence)
+      Yellow = INFERENCE (plausible, unverified)
+      Grey   = CORRECTED (flagged as FP)
+
+    Output: investigation-output/navigator-layer.json
+    """
+    try:
+        # Get findings
+        findings_json = find_evil(summarize=True)
+        findings = json.loads(findings_json)
+
+        if isinstance(findings, dict) and findings.get("status") == "clean":
+            return json.dumps({"status": "no_findings",
+                              "message": "No findings to map to ATT&CK."})
+
+        # Generate layer
+        layer = generate_layer_from_findings(run_cypher, findings)
+
+        # Write to disk
+        result = write_navigator_layer(layer)
+
+        _investigation_log.log_tool_call(
+            "generate_attack_navigator", {},
+            f"Generated ATT&CK layer with {result['techniques_mapped']} techniques",
         )
 
         return json.dumps(result, indent=2)
