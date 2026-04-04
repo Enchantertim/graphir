@@ -276,12 +276,13 @@ def entity_neighborhood(entity_name: str, hops: int = 2,
     hops = min(hops, 4)
     if exclude_hubs:
         query = f"""
-            MATCH (start)-[r*1..{hops}]-(neighbor)
+            MATCH p = (start)-[*1..{hops}]-(neighbor)
             WHERE (start.name = $name OR start.name CONTAINS $name)
-              AND NONE(n IN nodes(r) WHERE n:Host)
-            UNWIND r AS rel
+              AND NONE(n IN nodes(p) WHERE n:Host)
+              AND NOT neighbor:Host
+            WITH neighbor, relationships(p) AS rels
+            UNWIND rels AS rel
             WITH DISTINCT neighbor, rel
-            WHERE NOT neighbor:Host
             RETURN labels(neighbor) AS labels, neighbor.name AS name,
                    type(rel) AS relationship, rel.timestamp AS ts
             ORDER BY rel.timestamp
@@ -428,7 +429,7 @@ def verify_finding(finding_type: str, narrative: str,
         # Log finding ONCE per compound finding (not per claim)
         _investigation_log.log_finding(
             narrative,
-            finding.confidence.value,
+            finding.confidence,  # already a string from CompoundConfidence
             tactic=finding.claims[0].tactic if finding.claims else "",
             technique=finding.claims[0].technique if finding.claims else "",
             claim_summary=finding.claim_summary,

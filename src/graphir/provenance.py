@@ -423,7 +423,7 @@ class Finding:
         return {
             "finding_id": self.finding_id,
             "narrative": self.narrative,
-            "confidence": self.confidence.value,
+            "confidence": self.confidence,  # already a string from property
             "claim_summary": self.claim_summary,
             "claims": [c.to_dict() for c in self.claims],
         }

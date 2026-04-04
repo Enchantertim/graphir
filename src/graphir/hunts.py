@@ -41,6 +41,7 @@ HUNT_QUERIES = {
                  min(child.timestamp) AS first_seen, max(child.timestamp) AS last_seen
             RETURN ancestor, child, occurrences, sample_cmdlines, first_seen, last_seen
             ORDER BY occurrences DESC
+            LIMIT 30
         """,
         "tactic": "Execution",
         "technique": "T1059",
@@ -66,6 +67,7 @@ HUNT_QUERIES = {
                  min(r.timestamp) AS first_seen, max(r.timestamp) AS last_seen
             RETURN user, host, sessions, source_ips, logon_types, first_seen, last_seen
             ORDER BY sessions DESC
+            LIMIT 20
         """,
         "tactic": "Lateral Movement",
         "technique": "T1021",
@@ -88,6 +90,7 @@ HUNT_QUERIES = {
                  min(p.timestamp) AS first_seen, max(p.timestamp) AS last_seen
             RETURN accessor, access_count, sample_cmdlines, first_seen, last_seen
             ORDER BY access_count DESC
+            LIMIT 20
         """,
         "tactic": "Credential Access",
         "technique": "T1003.001",
@@ -106,11 +109,20 @@ HUNT_QUERIES = {
             MATCH (e:Event)-[:ON_HOST]->(h:Host)
             WHERE (e.event_id = 7045 OR e.event_id = 'registry_service')
               AND e.service_name IS NOT NULL AND e.service_name <> ''
-            WITH e.service_name AS service, e.service_path AS path,
-                 h.hostname AS host, count(*) AS install_count,
-                 min(e.timestamp) AS first_seen, max(e.timestamp) AS last_seen
-            RETURN service, path, host, install_count, first_seen, last_seen
-            ORDER BY first_seen
+            WITH e,
+                 CASE
+                   WHEN toLower(toString(e.service_path)) CONTAINS 'system32\\\\drivers' THEN 'kernel_driver'
+                   WHEN toLower(toString(e.service_path)) CONTAINS 'svchost' THEN 'svchost_hosted'
+                   WHEN toLower(toString(e.service_path)) CONTAINS 'system32' THEN 'system_service'
+                   WHEN toLower(toString(e.service_path)) CONTAINS 'program files' THEN 'program_files'
+                   WHEN toLower(toString(e.service_path)) CONTAINS '\\\\temp\\\\'
+                     OR toLower(toString(e.service_path)) CONTAINS '\\\\appdata\\\\' THEN 'SUSPICIOUS'
+                   ELSE 'other'
+                 END AS category
+            RETURN category, count(*) AS service_count,
+                   collect(DISTINCT e.service_name)[0..5] AS examples,
+                   min(e.timestamp) AS earliest, max(e.timestamp) AS latest
+            ORDER BY category
         """,
         "tactic": "Persistence",
         "technique": "T1543.003",
@@ -188,6 +200,7 @@ HUNT_QUERIES = {
                  min(p.timestamp) AS first_seen, max(p.timestamp) AS last_seen
             RETURN tool, exec_count, sample_cmdlines, users, first_seen, last_seen
             ORDER BY first_seen
+            LIMIT 20
         """,
         "tactic": "Discovery",
         "technique": "T1082",
