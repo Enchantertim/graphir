@@ -47,26 +47,19 @@ def run_cypher(query: str, params: dict | None = None) -> list[dict]:
         return [record.data() for record in result]
 
 
-# Write-blocking keywords for the read-only guard
-_WRITE_KEYWORDS = {"CREATE", "DELETE", "DETACH", "SET", "REMOVE", "MERGE", "DROP"}
-
-
 def run_cypher_readonly(query: str, params: dict | None = None) -> list[dict]:
-    """Execute a READ-ONLY Cypher query. Rejects writes at the application layer.
+    """Execute a READ-ONLY Cypher query using Neo4j native read transactions.
 
-    Neo4j Community lacks RBAC, so we enforce read-only at the application level.
-    Any query containing CREATE, DELETE, MERGE, SET, REMOVE, DROP is rejected.
-    This prevents the LLM from accidentally or maliciously modifying the graph
-    via the query_graph tool.
+    Uses session.execute_read() which enforces read-only at the database level.
+    This cannot be bypassed via APOC procedures or creative Cypher — Neo4j itself
+    rejects any write attempt inside a read transaction.
     """
-    # Check for write keywords (simple but effective — Cypher keywords are case-insensitive)
-    upper = query.upper()
-    for kw in _WRITE_KEYWORDS:
-        # Match keyword as whole word (not inside identifiers)
-        if kw in upper.split():
-            return [{"error": f"Read-only violation: query contains '{kw}'. "
-                     f"Use specific MCP tools for write operations."}]
-    return run_cypher(query, params)
+    driver = get_driver()
+    with driver.session() as session:
+        result = session.execute_read(
+            lambda tx: [record.data() for record in tx.run(query, params or {})]
+        )
+        return result
 
 
 # --- MCP Tools ---

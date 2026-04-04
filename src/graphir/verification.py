@@ -105,8 +105,8 @@ class VerificationEngine:
 
         except Exception as e:
             pred.passed = False
-            pred.failure_reason = DivergenceReason.RESOLUTION_FAILURE
-            pred.failure_detail = f"Query failed: {e}"
+            pred.failure_reason = DivergenceReason.QUERY_ERROR
+            pred.failure_detail = f"Cypher query error: {e}"
 
     # ------------------------------------------------------------------
     # Decomposition strategies

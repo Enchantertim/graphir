@@ -31,6 +31,7 @@ class DivergenceReason(str, Enum):
     SCOPE_TOO_BROAD = "scope_too_broad"     # Query returned noise, not signal
     RESOLUTION_FAILURE = "resolution_failure"  # Entity couldn't be resolved in graph
     CHAIN_BROKEN = "chain_broken"           # Provenance chain is broken
+    QUERY_ERROR = "query_error"             # Cypher query failed (syntax/runtime error)
 
 
 class CorrectionStrategy(str, Enum):

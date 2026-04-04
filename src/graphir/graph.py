@@ -8,6 +8,7 @@ SCHEMA_CONSTRAINTS = [
     "CREATE INDEX IF NOT EXISTS FOR (p:Process) ON (p.name)",
     "CREATE INDEX IF NOT EXISTS FOR (f:File) ON (f.path)",
     "CREATE INDEX IF NOT EXISTS FOR (c:Connection) ON (c.dst_ip, c.dst_port)",
+    "CREATE CONSTRAINT IF NOT EXISTS FOR (e:Event) REQUIRE e.event_hash IS UNIQUE",
     "CREATE INDEX IF NOT EXISTS FOR (e:Event) ON (e.event_id)",
     "CREATE INDEX IF NOT EXISTS FOR (x:Executable) ON (x.path)",
     "CREATE INDEX IF NOT EXISTS FOR (c:Correction) ON (c.correction_id)",

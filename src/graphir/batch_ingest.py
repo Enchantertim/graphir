@@ -11,6 +11,7 @@ A 1000-event batch is ~1000x faster than 1000 individual transactions.
 import json
 import logging
 import re
+import hashlib
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -191,10 +192,17 @@ class BatchIngester:
             strings = event.get("strings", []) or []
             xml = event.get("xml_string", "")
 
+            # Deterministic hash for idempotent ingestion — same event = same hash
+            record_num = event.get("record_number", "")
+            event_hash = hashlib.sha256(
+                f"{eid}:{ts}:{event.get('source_name','')}:{record_num}:{hostname}".encode()
+            ).hexdigest()[:16]
+
             # Always add to generic events batch
             self._batches["evtx_event"].append({
                 "hostname": hostname,
                 "event_id": eid,
+                "event_hash": event_hash,
                 "source_name": event.get("source_name", ""),
                 "ts": ts,
                 "message": str(event.get("message", ""))[:2000],
@@ -411,19 +419,19 @@ BATCH_QUERIES = {
     "evtx_event": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        CREATE (e:Event {
-            event_id: evt.event_id,
-            source: evt.source_name,
-            timestamp: datetime(evt.ts),
-            message: evt.message,
-            channel: evt.channel,
-            _origin_tool: evt._origin_tool,
-            _origin_artifact: evt._origin_artifact,
-            _origin_parser: evt._origin_parser,
-            _origin_data_type: evt._origin_data_type,
-            _origin_source_line: evt._origin_source_line
-        })
-        CREATE (e)-[:ON_HOST {timestamp: datetime(evt.ts)}]->(h)
+        MERGE (e:Event {event_hash: evt.event_hash})
+        ON CREATE SET
+            e.event_id = evt.event_id,
+            e.source = evt.source_name,
+            e.timestamp = datetime(evt.ts),
+            e.message = evt.message,
+            e.channel = evt.channel,
+            e._origin_tool = evt._origin_tool,
+            e._origin_artifact = evt._origin_artifact,
+            e._origin_parser = evt._origin_parser,
+            e._origin_data_type = evt._origin_data_type,
+            e._origin_source_line = evt._origin_source_line
+        MERGE (e)-[:ON_HOST]->(h)
     """,
 
     "logon": """
