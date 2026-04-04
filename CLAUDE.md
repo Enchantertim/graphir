@@ -55,6 +55,12 @@ Before stating any finding with confidence:
 
 **Never claim CONFIRMED without structural verification. Never hide INSUFFICIENT_EVIDENCE.**
 
+**Show your work.** Before dismissing ANY entity as benign or artifact:
+1. Query it — check its edges, parent/child relationships, origin metadata
+2. State what you checked and what you found
+3. Only THEN classify it (malicious / benign / artifact / insufficient data)
+Judges are watching the reasoning chain, not just the conclusion.
+
 ## Tools Quick Reference
 
 | Tool | When to use |
