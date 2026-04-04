@@ -477,6 +477,10 @@ def write_sigma_rules(rules: list[dict], output_dir: str = "investigation-output
     Returns summary of written rules.
     """
     out_path = Path(output_dir)
+    # Clean previous rules to prevent stale accumulation
+    if out_path.exists():
+        for old in out_path.glob("*.yml"):
+            old.unlink()
     out_path.mkdir(parents=True, exist_ok=True)
 
     written = []

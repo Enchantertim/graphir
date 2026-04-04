@@ -131,17 +131,26 @@ def _build_executive_summary(run_cypher, findings, log) -> dict:
 
 
 def _build_findings_detail(findings: list[dict]) -> list[dict]:
-    """Structured finding details with results."""
+    """Structured finding details with results and context."""
     details = []
     for f in findings:
         if isinstance(f, dict) and "hunt" in f:
+            # Summarize results for readability
+            results = f.get("results", [])
+            result_summary = []
+            for r in results[:10]:
+                # Extract the most informative fields
+                clean = {k: v for k, v in r.items()
+                         if v is not None and v != "" and v != []}
+                result_summary.append(clean)
+
             details.append({
                 "hunt": f.get("hunt"),
                 "technique": f.get("technique"),
                 "tactic": f.get("tactic"),
                 "description": f.get("description"),
                 "hit_count": f.get("hit_count", 0),
-                "results_sample": f.get("results", [])[:5],
+                "results": result_summary,
             })
     return details
 
@@ -296,6 +305,15 @@ def _render_markdown(report: dict) -> str:
         lines.append(f"### [{f.get('technique', '?')}] {f.get('description', '')}")
         lines.append(f"- **Tactic:** {f.get('tactic', '')}")
         lines.append(f"- **Hits:** {f.get('hit_count', 0)}")
+        lines.append("")
+        # Show result data
+        for r in f.get("results", [])[:5]:
+            parts = [f"**{k}:** {v}" for k, v in r.items()
+                     if v is not None and v != "" and v != []]
+            if parts:
+                lines.append(f"  - {' | '.join(parts[:4])}")
+        if f.get("hit_count", 0) > 5:
+            lines.append(f"  - *... and {f['hit_count'] - 5} more*")
         lines.append("")
 
     # Verification trail
