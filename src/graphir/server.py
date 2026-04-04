@@ -404,36 +404,14 @@ def verify_finding(finding_type: str, narrative: str,
             claim_summary=finding.claim_summary,
         )
 
-        # Auto-record correction if finding is rejected
-        # Correction type semantics:
-        #   "unsupported" — all required predicates returned absent_data
-        #     (evidence may exist but wasn't ingested, or claim is outside graph coverage)
-        #   "downgraded" — some predicates failed for mixed reasons
-        #   "hallucination" reserved for analyst/explicit agent flag only
-        if finding.confidence.value == "INSUFFICIENT_EVIDENCE":
-            all_divergences = [d for c in finding.claims for d in c.divergences]
-            if all_divergences:
-                all_absent = all(
-                    d["reason"] == "absent_data" for d in all_divergences
-                )
-                record_correction(
-                    run_cypher,
-                    correction_type="unsupported" if all_absent else "downgraded",
-                    reason="; ".join(d["detail"] for d in all_divergences[:3]),
-                    original_claim=narrative,
-                    entity_name=entity_name,
-                    corrected_by="agent",
-                    original_confidence="INFERENCE",
-                    corrected_confidence="INSUFFICIENT_EVIDENCE",
-                    divergence_data=all_divergences,
-                    investigation_id=_investigation_log.investigation_id,
-                    finding_id=finding.finding_id,
-                )
-                _investigation_log.log_correction(
-                    "unsupported" if all_absent else "downgraded",
-                    all_divergences[0].get("detail", ""),
-                    narrative, entity_name,
-                )
+        # NOTE: We deliberately do NOT auto-materialize Correction nodes for
+        # routine verification misses. That would flood the graph with noise
+        # for every exploratory verify_finding call. Corrections are reserved
+        # for meaningful claim-state transitions — the agent should explicitly
+        # call flag_correction when it decides a finding should be corrected.
+        #
+        # The verification result (INSUFFICIENT/INFERENCE/CONFIRMED) is logged
+        # in the investigation log and returned to the agent for reasoning.
 
         return json.dumps(finding.to_dict(), default=str, indent=2)
     except Exception as e:

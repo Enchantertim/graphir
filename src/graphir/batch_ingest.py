@@ -534,8 +534,9 @@ BATCH_QUERIES = {
     "prefetch": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        MERGE (x:Executable {name: evt.proc_name})
-        ON CREATE SET x.path = evt.path, x.first_seen = datetime(evt.ts)
+        WITH h, evt, CASE WHEN evt.path <> '' THEN evt.path ELSE evt.proc_name END AS exe_key
+        MERGE (x:Executable {path: exe_key})
+        ON CREATE SET x.name = evt.proc_name, x.first_seen = datetime(evt.ts)
         SET x.run_count = evt.run_count,
             x.last_executed = datetime(evt.ts),
             x._origin_tool = evt._origin_tool,
@@ -549,8 +550,8 @@ BATCH_QUERIES = {
     "amcache": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        MERGE (x:Executable {name: evt.proc_name})
-        ON CREATE SET x.path = evt.path, x.first_seen = datetime(evt.ts)
+        MERGE (x:Executable {path: evt.path})
+        ON CREATE SET x.name = evt.proc_name, x.first_seen = datetime(evt.ts)
         SET x.sha1 = evt.sha1,
             x._origin_tool = evt._origin_tool,
             x._origin_artifact = evt._origin_artifact,
@@ -563,8 +564,9 @@ BATCH_QUERIES = {
     "shimcache": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        MERGE (x:Executable {name: evt.proc_name})
-        ON CREATE SET x.path = evt.path, x.first_seen = datetime(evt.ts)
+        WITH h, evt, CASE WHEN evt.path <> '' THEN evt.path ELSE evt.proc_name END AS exe_key
+        MERGE (x:Executable {path: exe_key})
+        ON CREATE SET x.name = evt.proc_name, x.first_seen = datetime(evt.ts)
         SET x._origin_tool = evt._origin_tool,
             x._origin_artifact = evt._origin_artifact,
             x._origin_parser = evt._origin_parser,
