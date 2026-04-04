@@ -129,82 +129,110 @@ def generate_evidence_chain(run_cypher, findings: list[dict],
 
 def _collect_entities_for_finding(run_cypher, hunt: str,
                                    results: list[dict]) -> list[dict]:
-    """Collect graph entities with origin metadata for a finding's results."""
+    """Collect graph entities with origin metadata for a finding's results.
+
+    Uses timestamps from finding results to scope lookups to the SPECIFIC
+    entity instance, not a random one with the same name. This prevents
+    the evidence chain from pointing to the wrong cmd.exe execution.
+    """
     entities = []
     seen = set()
 
-    # Extract entity names from results based on hunt type
-    # Separate by expected node type for targeted lookups
-    process_names = set()
-    host_names = set()
-    user_names = set()
-    service_names = set()
+    # Extract (name, timestamp) pairs from results for precise lookups
+    entity_refs = []  # list of (name, timestamp_hint, node_type_hint)
 
     for r in results:
-        # Processes (full paths or short names)
+        ts = r.get("ts") or r.get("first_seen") or r.get("timestamp") or r.get("earliest")
+
         for key in ("parent", "ancestor", "child", "accessor", "tool",
                      "process", "proc_name"):
             val = r.get(key)
             if val and isinstance(val, str) and val not in ("", "unknown"):
-                process_names.add(val)
+                entity_refs.append((val, ts, "Process"))
 
-        # Hosts
         for key in ("host", "source", "destination", "src_host"):
             val = r.get(key)
             if val and isinstance(val, str) and val:
-                host_names.add(val)
+                entity_refs.append((val, ts, "Host"))
 
-        # Users
         for key in ("user",):
             val = r.get(key)
             if val and isinstance(val, str) and val not in ("", "unknown"):
-                user_names.add(val)
+                entity_refs.append((val, ts, "User"))
 
-        # Services
         for key in ("service",):
             val = r.get(key)
             if val and isinstance(val, str) and val:
-                service_names.add(val)
+                entity_refs.append((val, ts, "Service"))
 
-    # Combine into names for backward compat
-    names = process_names | host_names | user_names | service_names
+    # Deduplicate by name (keep first timestamp for scoping)
+    names = {}
+    for name, ts, ntype in entity_refs:
+        if name not in names:
+            names[name] = (ts, ntype)
 
     # Query graph for each entity's origin
     for name in names:
         if name in seen:
             continue
         seen.add(name)
+        ts_hint, type_hint = names[name]
 
-        # Search specific labels with UNION — fast and type-aware
+        # Search specific labels with UNION — scoped by timestamp when available
+        # to get the SPECIFIC instance, not a random one with the same name
         try:
-            results = run_cypher("""
-                MATCH (p:Process) WHERE p.name CONTAINS $name
-                RETURN 'Process' AS type, p.name AS name, p._origin_tool AS tool,
-                       p._origin_artifact AS artifact, p._origin_parser AS parser,
-                       p._origin_data_type AS data_type, p._origin_source_line AS source_line,
-                       p._origin_derived_from_child_line AS derived_line
-                LIMIT 2
-                UNION ALL
-                MATCH (x:Executable) WHERE x.name CONTAINS $name
-                RETURN 'Executable' AS type, x.name AS name, x._origin_tool AS tool,
-                       x._origin_artifact AS artifact, x._origin_parser AS parser,
-                       x._origin_data_type AS data_type, x._origin_source_line AS source_line,
-                       null AS derived_line
-                LIMIT 2
-                UNION ALL
-                MATCH (h:Host) WHERE h.hostname = $name
-                RETURN 'Host' AS type, h.hostname AS name, null AS tool,
-                       null AS artifact, null AS parser, null AS data_type,
-                       null AS source_line, null AS derived_line
-                LIMIT 1
-                UNION ALL
-                MATCH (u:User) WHERE u.name = $name
-                RETURN 'User' AS type, u.name AS name, u._origin_tool AS tool,
-                       u._origin_artifact AS artifact, u._origin_parser AS parser,
-                       u._origin_data_type AS data_type, u._origin_source_line AS source_line,
-                       null AS derived_line
-                LIMIT 1
-            """, {"name": name})
+            if ts_hint and type_hint == "Process":
+                # Timestamp-scoped lookup for process instances
+                results = run_cypher("""
+                    MATCH (p:Process) WHERE p.name CONTAINS $name
+                      AND (p.timestamp = datetime($ts) OR $ts IS NULL)
+                    RETURN 'Process' AS type, p.name AS name, p._origin_tool AS tool,
+                           p._origin_artifact AS artifact, p._origin_parser AS parser,
+                           p._origin_data_type AS data_type, p._origin_source_line AS source_line,
+                           p._origin_derived_from_child_line AS derived_line
+                    LIMIT 2
+                """, {"name": name, "ts": str(ts_hint) if ts_hint else None})
+
+                # Fall back to unscoped if timestamp match fails
+                if not results:
+                    results = run_cypher("""
+                        MATCH (p:Process) WHERE p.name CONTAINS $name
+                        RETURN 'Process' AS type, p.name AS name, p._origin_tool AS tool,
+                               p._origin_artifact AS artifact, p._origin_parser AS parser,
+                               p._origin_data_type AS data_type, p._origin_source_line AS source_line,
+                               p._origin_derived_from_child_line AS derived_line
+                        LIMIT 2
+                    """, {"name": name})
+            else:
+                # Standard UNION lookup for non-Process entities or when no timestamp
+                results = run_cypher("""
+                    MATCH (p:Process) WHERE p.name CONTAINS $name
+                    RETURN 'Process' AS type, p.name AS name, p._origin_tool AS tool,
+                           p._origin_artifact AS artifact, p._origin_parser AS parser,
+                           p._origin_data_type AS data_type, p._origin_source_line AS source_line,
+                           p._origin_derived_from_child_line AS derived_line
+                    LIMIT 2
+                    UNION ALL
+                    MATCH (x:Executable) WHERE x.name CONTAINS $name
+                    RETURN 'Executable' AS type, x.name AS name, x._origin_tool AS tool,
+                           x._origin_artifact AS artifact, x._origin_parser AS parser,
+                           x._origin_data_type AS data_type, x._origin_source_line AS source_line,
+                           null AS derived_line
+                    LIMIT 2
+                    UNION ALL
+                    MATCH (h:Host) WHERE h.hostname = $name
+                    RETURN 'Host' AS type, h.hostname AS name, null AS tool,
+                           null AS artifact, null AS parser, null AS data_type,
+                           null AS source_line, null AS derived_line
+                    LIMIT 1
+                    UNION ALL
+                    MATCH (u:User) WHERE u.name = $name
+                    RETURN 'User' AS type, u.name AS name, u._origin_tool AS tool,
+                           u._origin_artifact AS artifact, u._origin_parser AS parser,
+                           u._origin_data_type AS data_type, u._origin_source_line AS source_line,
+                           null AS derived_line
+                    LIMIT 1
+                """, {"name": name})
 
             for r in results:
                 origin = {}

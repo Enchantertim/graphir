@@ -45,6 +45,10 @@ LOGSOURCE_MAP = {
         "category": "network_connection",
         "product": "windows",
     },
+    "process_access": {
+        "category": "process_access",
+        "product": "windows",
+    },
     "powershell": {
         "service": "powershell",
         "product": "windows",
@@ -311,10 +315,6 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                             "LogonType": [3, 9, 10],
                             "TargetUserName": user,
                         },
-                        "filter": {
-                            "TargetUserName|endswith": "$",
-                        },
-                        "condition": "selection and not filter",
                     },
                     level="medium",
                     technique_id=technique,
@@ -449,10 +449,10 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                     continue
                 seen.add(accessor)
                 rules.append(generate_sigma_rule(
-                    title=f"LSASS Access by {accessor}",
-                    description=f"Detects {accessor} accessing LSASS memory, "
-                                f"indicating potential credential dumping.",
-                    logsource_type="process_creation",
+                    title=f"LSASS Memory Access by {accessor}",
+                    description=f"Detects {accessor} accessing LSASS process memory "
+                                f"(Sysmon Event 10), indicating potential credential dumping.",
+                    logsource_type="process_access",
                     detection={
                         "selection": {
                             "TargetImage|endswith": "\\lsass.exe",

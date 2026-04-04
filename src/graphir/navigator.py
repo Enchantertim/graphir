@@ -182,11 +182,14 @@ def generate_layer_from_findings(run_cypher, findings: list[dict]) -> dict:
             RETURN c.original_claim AS claim, c.type AS correction_type,
                    c.reason AS reason
         """)
-        # If any correction mentions a technique, mark it
+        # Only downgrade if the technique is NOT already CONFIRMED.
+        # A correction on one instance of a technique should not hide
+        # a confirmed finding of the same technique elsewhere.
         for c in corrections:
             claim = (c.get("claim") or "").lower()
+            finding_id = c.get("finding_id", "")
             for t in techniques:
-                if t["technique_id"].lower() in claim:
+                if t["technique_id"].lower() in claim and t.get("confidence") != "CONFIRMED":
                     t["confidence"] = "CORRECTED"
                     t["description"] += f" [CORRECTED: {c.get('reason', '')}]"
     except Exception:
