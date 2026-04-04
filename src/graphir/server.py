@@ -15,6 +15,7 @@ from graphir.corrections import (
 from graphir.hunts import HUNT_QUERIES
 from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, write_sigma_rules
 from graphir.navigator import generate_layer_from_findings, write_navigator_layer
+from graphir.evidence_chain import generate_evidence_chain, write_evidence_chain
 from graphir.investigation_log import InvestigationLog
 
 # --- Config ---
@@ -698,6 +699,49 @@ def generate_attack_navigator() -> str:
         _investigation_log.log_tool_call(
             "generate_attack_navigator", {},
             f"Generated ATT&CK layer with {result['techniques_mapped']} techniques",
+        )
+
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# --- Evidence Chain ---
+
+
+@mcp.tool()
+def generate_evidence_chain_report() -> str:
+    """Generate a full evidence chain JSON from investigation findings.
+
+    For every finding, traces through the graph to collect all referenced
+    entities with their _origin_* provenance metadata. Produces a JSON file
+    that maps: finding → entities → origin tool → source artifact → line number.
+
+    An auditor can take any finding and walk backwards through the chain
+    to the exact line in the source Plaso JSONL file.
+
+    Includes: provenance coverage stats, correction data, sample results.
+    Output: investigation-output/evidence-chain.json
+    """
+    try:
+        findings_json = find_evil(summarize=True)
+        findings = json.loads(findings_json)
+
+        if isinstance(findings, dict) and findings.get("status") == "clean":
+            return json.dumps({"status": "no_findings",
+                              "message": "No findings to trace."})
+
+        chain = generate_evidence_chain(
+            run_cypher, findings,
+            investigation_id=_investigation_log.investigation_id,
+        )
+        result = write_evidence_chain(chain)
+
+        _investigation_log.log_tool_call(
+            "generate_evidence_chain_report", {},
+            f"Evidence chain: {result['findings']} findings, "
+            f"{result['total_entities']} entities, "
+            f"{result['provenance_coverage']} coverage",
         )
 
         return json.dumps(result, indent=2)
