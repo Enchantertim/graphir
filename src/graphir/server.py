@@ -13,6 +13,7 @@ from graphir.corrections import (
     record_correction, check_existing_corrections, get_correction_summary,
 )
 from graphir.hunts import HUNT_QUERIES
+from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, write_sigma_rules
 from graphir.investigation_log import InvestigationLog
 
 # --- Config ---
@@ -560,6 +561,103 @@ def investigation_summary() -> str:
         pass
 
     return json.dumps(summary, default=str, indent=2)
+
+
+# --- Sigma Rule Generation Tools ---
+
+
+@mcp.tool()
+def create_sigma_rule(title: str, description: str, logsource_type: str,
+                      selection: str, level: str = "medium",
+                      technique_id: str = "", tactic: str = "",
+                      filter_fields: str = "",
+                      false_positives: str = "") -> str:
+    """Create a single Sigma detection rule from typed parameters.
+
+    The rule is constructed programmatically from validated inputs — the LLM
+    does NOT write raw YAML. This prevents hallucinated field names, invalid
+    modifiers, and broken YAML spacing.
+
+    Args:
+        title: Short rule title (e.g., "Suspicious PowerShell Execution")
+        description: What this rule detects and why
+        logsource_type: One of: process_creation, logon, service_install,
+                       registry, network, powershell, file
+        selection: JSON string of field→value detection pairs.
+            Example: '{"Image|endswith": "\\\\cmd.exe", "ParentImage|endswith": "\\\\explorer.exe"}'
+        level: Severity: informational, low, medium, high, critical
+        technique_id: MITRE ATT&CK technique (e.g., "T1059.001")
+        tactic: MITRE ATT&CK tactic (e.g., "execution")
+        filter_fields: Optional JSON string of fields to exclude from detection.
+        false_positives: Comma-separated list of known false positive scenarios.
+    """
+    try:
+        selection_dict = json.loads(selection) if selection else {}
+        filter_dict = json.loads(filter_fields) if filter_fields else {}
+        fp_list = [s.strip() for s in false_positives.split(",") if s.strip()] if false_positives else None
+
+        detection = {"selection": selection_dict}
+        if filter_dict:
+            detection["filter"] = filter_dict
+
+        result = generate_sigma_rule(
+            title=title,
+            description=description,
+            logsource_type=logsource_type,
+            detection=detection,
+            level=level,
+            technique_id=technique_id,
+            tactic=tactic,
+            false_positives=fp_list,
+        )
+
+        _investigation_log.log_tool_call(
+            "create_sigma_rule", {"title": title, "technique": technique_id},
+            f"Generated rule: {title}",
+        )
+
+        return json.dumps({
+            "status": "ok",
+            "rule_id": result["rule_id"],
+            "title": title,
+            "level": level,
+            "yaml": result["yaml"],
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def generate_sigma_from_findings() -> str:
+    """Auto-generate Sigma rules from all current find_evil results.
+
+    Runs find_evil, maps each finding type to appropriate Sigma logsource
+    and detection logic, writes rules to investigation-output/sigma-rules/.
+
+    Returns summary of generated rules.
+    """
+    try:
+        # Run find_evil to get current findings
+        findings_json = find_evil(summarize=True)
+        findings = json.loads(findings_json)
+
+        if isinstance(findings, dict) and findings.get("status") == "clean":
+            return json.dumps({"status": "no_findings", "message": "No findings to generate rules from."})
+
+        # Generate rules
+        rules = generate_rules_from_findings(run_cypher, findings)
+
+        # Write to disk
+        result = write_sigma_rules(rules)
+
+        _investigation_log.log_tool_call(
+            "generate_sigma_from_findings", {},
+            f"Generated {result['rules_written']} Sigma rules",
+        )
+
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 # --- Entrypoint ---
