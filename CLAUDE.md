@@ -62,6 +62,23 @@ Before stating any finding with confidence:
 3. Only THEN classify it (malicious / benign / artifact / insufficient data)
 Judges are watching the reasoning chain, not just the conclusion.
 
+**Use the right tools.** Prefer `find_evil` hunts over ad-hoc Cypher for detection:
+- LSASS access is `Process -[:ACCESSED]-> Process {name: lsass.exe}`, NOT File access
+- Process chains use `SPAWNED` edges with variable-length paths `*1..3`
+- Credential dumping tools are in the Process and Executable nodes, not File nodes
+- Use `entity_neighborhood` and `shortest_path` to explore, not hand-written Cypher
+- Only fall back to `query_graph` when the built-in tools don't cover your question
+
+**Graph schema reminder:**
+- `Process` = execution instance (from 4688 events, has cmdline, pid, user)
+- `Executable` = binary on disk (from prefetch/amcache/shimcache, has path, sha1)
+- `SPAWNED` = parent→child process relationship
+- `ACCESSED` = process accessed another process (e.g., LSASS) or file
+- `EXECUTED_ON` = process ran on a host
+- `HAS_EXECUTABLE` = host has evidence of a binary
+- `LOGGED_ON` = user authenticated to a host (has logon_type, src_ip)
+- `CONNECTED_TO` = network connection between hosts
+
 ## Tools Quick Reference
 
 | Tool | When to use |
