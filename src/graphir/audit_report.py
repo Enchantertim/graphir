@@ -319,17 +319,31 @@ def _render_markdown(report: dict) -> str:
     # Verification trail
     lines.append("## Verification Audit Trail")
     lines.append("")
-    lines.append("| Timestamp | Type | Detail | Confidence | Passed | Failed |")
-    lines.append("|-----------|------|--------|------------|--------|--------|")
     for v in report["verification_trail"]:
         ts = v.get("timestamp", "")[:19]
         vtype = v.get("type", "verification")
-        detail = v.get("claim", v.get("detail", ""))[:60]
         conf = v.get("confidence", "")
-        passed = ", ".join(v.get("predicates_passed", []))[:30]
-        failed = ", ".join(v.get("predicates_failed", []))[:30]
-        lines.append(f"| {ts} | {vtype} | {detail} | {conf} | {passed} | {failed} |")
-    lines.append("")
+        detail = v.get("claim", v.get("detail", ""))
+
+        if vtype == "verification":
+            passed = v.get("predicates_passed", [])
+            failed = v.get("predicates_failed", [])
+            lines.append(f"### [{conf}] {detail}")
+            lines.append(f"- **Time:** {ts}")
+            if passed:
+                lines.append(f"- **Passed:** {', '.join(passed)}")
+            if failed:
+                lines.append(f"- **Failed:** {', '.join(failed)}")
+            for d in v.get("divergences", []):
+                lines.append(f"- **Divergence:** {d.get('predicate', '?')} — "
+                             f"{d.get('reason', '?')}: {d.get('detail', '')}")
+            lines.append("")
+        elif vtype == "finding":
+            lines.append(f"**Finding logged:** {detail} → **{conf}**")
+            claim_summary = v.get("claim_summary", {})
+            if claim_summary:
+                lines.append(f"  - Claims: {claim_summary}")
+            lines.append("")
 
     # Corrections
     corr = report["corrections"]
@@ -338,9 +352,11 @@ def _render_markdown(report: dict) -> str:
     lines.append(f"**Total corrections:** {corr.get('total', 0)}")
     lines.append("")
     for c in corr.get("details", []):
-        lines.append(f"- **[{c.get('type', '?')}]** {c.get('claim', '')[:80]}")
-        lines.append(f"  - By: {c.get('by', '?')}, Reason: {c.get('reason', '')[:80]}")
-    lines.append("")
+        lines.append(f"### [{c.get('type', '?')}] {c.get('claim', '')}")
+        lines.append(f"- **Corrected by:** {c.get('by', '?')}")
+        lines.append(f"- **Reason:** {c.get('reason', '')}")
+        lines.append(f"- **Time:** {c.get('ts', '')}")
+        lines.append("")
 
     # Provenance
     prov = report["provenance"]
