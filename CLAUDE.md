@@ -40,7 +40,8 @@ Generate the full output package from current investigation state:
 1. `generate_sigma_from_findings()` — Sigma detection rules
 2. `generate_attack_navigator()` — ATT&CK Navigator layer
 3. `generate_evidence_chain_report()` — Full provenance chain
-4. `investigation_summary()` — Session overview for the report
+4. `generate_audit_report_tool()` — Complete audit report (JSON + Markdown)
+5. `investigation_summary()` — Session overview
 
 ## Verification Protocol
 

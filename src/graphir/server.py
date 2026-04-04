@@ -16,6 +16,7 @@ from graphir.hunts import HUNT_QUERIES
 from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, write_sigma_rules
 from graphir.navigator import generate_layer_from_findings, write_navigator_layer
 from graphir.evidence_chain import generate_evidence_chain, write_evidence_chain
+from graphir.audit_report import generate_audit_report
 from graphir.investigation_log import InvestigationLog
 
 # --- Config ---
@@ -751,6 +752,51 @@ def generate_evidence_chain_report() -> str:
             f"Evidence chain: {result['findings']} findings, "
             f"{result['total_entities']} entities, "
             f"{result['provenance_coverage']} coverage",
+        )
+
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# --- Audit Report ---
+
+
+@mcp.tool()
+def generate_audit_report_tool() -> str:
+    """Generate a complete audit report for the investigation.
+
+    Produces both JSON and Markdown reports containing:
+    - Executive summary (hosts, users, findings, duration)
+    - All findings with confidence levels and evidence
+    - Full verification audit trail (predicates passed/failed, divergences)
+    - Corrections (FP, hallucination, unsupported — with reasons)
+    - Provenance integrity (coverage stats per entity type)
+    - Graph overview (node/edge counts, time range)
+    - List of all generated output artifacts
+    - Investigation metadata (session ID, tool calls, elapsed time)
+
+    Output:
+      investigation-output/audit-report.json  (machine-readable)
+      investigation-output/audit-report.md    (human-readable)
+    """
+    try:
+        # Get current findings
+        findings_json = find_evil(summarize=True)
+        findings = json.loads(findings_json)
+        if isinstance(findings, dict) and findings.get("status") == "clean":
+            findings = []
+
+        result = generate_audit_report(
+            run_cypher,
+            _investigation_log,
+            findings,
+        )
+
+        _investigation_log.log_tool_call(
+            "generate_audit_report", {},
+            f"Audit report: {result['findings_count']} findings, "
+            f"{result['provenance_coverage']} provenance",
         )
 
         return json.dumps(result, indent=2)
