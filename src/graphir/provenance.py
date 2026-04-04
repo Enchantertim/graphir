@@ -76,7 +76,7 @@ def make_origin(event: dict, source_file: str, line_num: int = 0) -> Origin:
     ts = event.get("timestamp", 0)
     if isinstance(ts, (int, float)) and ts > 0:
         try:
-            dt = datetime.utcfromtimestamp(ts / 1_000_000)
+            dt = datetime.fromtimestamp(ts / 1_000_000, tz=timezone.utc)
             ts_str = dt.isoformat() + "Z"
         except (ValueError, OSError):
             ts_str = str(ts)
@@ -176,12 +176,18 @@ class Predicate:
     Each predicate is a specific, falsifiable condition — NOT a restatement
     of the inference. Predicates check prerequisites the LLM didn't explicitly
     reason about (Critique #1: independence from inference path).
+
+    If expect_field is set, the query MUST return data AND the named field
+    must be True for at least one row. If data is returned but expect_field
+    is False for all rows, the predicate is CONTRADICTORY (not ABSENT).
+    This distinguishes "I can't find it" from "I found it, and you're wrong."
     """
     name: str                          # e.g., "auth_edge_exists"
     description: str                   # Human-readable
     cypher: str                        # Verification query
     params: dict = field(default_factory=dict)
     required: bool = True              # Must pass for CONFIRMED
+    expect_field: str = ""             # If set, check this boolean field in results
     result: list | None = None         # Populated after execution
     passed: bool | None = None         # Populated after evaluation
     failure_reason: DivergenceReason | None = None
@@ -413,15 +419,19 @@ LATERAL_MOVEMENT_PREDICATES = [
     },
     {
         "name": "network_logon_type",
-        "description": "Logon type is 3 (Network) or 10 (RemoteInteractive) — consistent with remote access, not interactive/service/batch",
+        "description": "Logon type is 3/9/10 (Network/NewCredentials/RDP) — not interactive/service/batch. Aggregates all logon types to detect CONTRADICTORY.",
         "cypher": """
             MATCH (u:User)-[r:LOGGED_ON]->(h:Host)
             WHERE u.name = $username AND h.hostname = $target_host
-              AND r.logon_type IN [3, 10]
-            RETURN r.logon_type, r.timestamp, r.src_ip
-            LIMIT 5
+            WITH collect(DISTINCT r.logon_type) AS all_types
+            WITH all_types,
+                 [t IN all_types WHERE t IN [3, 9, 10]] AS matching_types,
+                 [t IN all_types WHERE NOT t IN [3, 9, 10]] AS other_types
+            RETURN all_types, matching_types, other_types,
+                   size(matching_types) > 0 AS is_expected
         """,
         "required": True,
+        "expect_field": "is_expected",
     },
     {
         "name": "source_host_connection",

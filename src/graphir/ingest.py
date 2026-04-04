@@ -15,7 +15,7 @@ Schema:
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from graphir.provenance import Origin, make_origin
@@ -56,7 +56,7 @@ def _parse_timestamp(ts_value) -> str | None:
     if isinstance(ts_value, (int, float)):
         # Plaso uses microseconds since epoch
         try:
-            dt = datetime.utcfromtimestamp(ts_value / 1_000_000)
+            dt = datetime.fromtimestamp(ts_value / 1_000_000, tz=timezone.utc)
             return dt.isoformat() + "Z"
         except (ValueError, OSError):
             return None

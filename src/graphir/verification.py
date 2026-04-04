@@ -48,19 +48,59 @@ class VerificationEngine:
         return claim
 
     def _execute_predicate(self, pred: Predicate):
-        """Run a single predicate query and evaluate pass/fail."""
+        """Run a single predicate query and evaluate pass/fail.
+
+        Three outcomes:
+          1. No results → ABSENT_DATA ("I can't find it")
+          2. Results exist, expect_field is True → PASS
+          3. Results exist, expect_field is False → CONTRADICTORY ("I found it, and you're wrong")
+        """
         try:
             results = self.run_cypher(pred.cypher, pred.params)
             pred.result = results
 
             if not results:
+                # No evidence found at all
                 pred.passed = False
                 pred.failure_reason = DivergenceReason.ABSENT_DATA
                 pred.failure_detail = (
                     f"Predicate '{pred.name}' returned 0 results. "
                     f"Required structural evidence not found in graph."
                 )
+            elif pred.expect_field:
+                # Evidence exists — but does it match expectations?
+                matching = [r for r in results if r.get(pred.expect_field) is True]
+                non_matching = [r for r in results if r.get(pred.expect_field) is False]
+
+                if matching:
+                    # At least one row matches — predicate passes
+                    pred.passed = True
+                elif non_matching:
+                    # Evidence EXISTS but contradicts the claim
+                    pred.passed = False
+                    pred.failure_reason = DivergenceReason.CONTRADICTORY
+                    # Include what we actually found for the divergence report
+                    actual_values = [r.get(pred.expect_field.replace("is_expected", "").rstrip("_"))
+                                     for r in non_matching[:5]]
+                    # Try to extract the actual field value that was checked
+                    sample = non_matching[0]
+                    detail_parts = [f"{k}={v}" for k, v in sample.items()
+                                    if k != pred.expect_field and v is not None]
+                    pred.failure_detail = (
+                        f"CONTRADICTORY: Evidence exists but does not match expected condition. "
+                        f"Found {len(non_matching)} records where {pred.expect_field}=False. "
+                        f"Sample: {', '.join(detail_parts[:4])}"
+                    )
+                else:
+                    # Results exist but expect_field is null/missing
+                    pred.passed = False
+                    pred.failure_reason = DivergenceReason.ABSENT_DATA
+                    pred.failure_detail = (
+                        f"Predicate '{pred.name}' returned results but "
+                        f"'{pred.expect_field}' field was null/missing."
+                    )
             else:
+                # No expect_field — results exist means pass
                 pred.passed = True
 
         except Exception as e:
@@ -103,13 +143,16 @@ class VerificationEngine:
             inference_basis=statement,
         )
         for tmpl in templates:
-            claim.add_predicate(
+            pred = claim.add_predicate(
                 name=tmpl["name"],
                 description=tmpl["description"],
                 cypher=tmpl["cypher"],
                 required=tmpl.get("required", True),
                 **params,
             )
+            # Set expect_field if the template defines one
+            if "expect_field" in tmpl:
+                claim.predicates[-1].expect_field = tmpl["expect_field"]
 
         self.verify_claim(claim)
         finding.claims.append(claim)

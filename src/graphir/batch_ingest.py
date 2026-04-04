@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from graphir.provenance import make_origin
@@ -52,7 +52,7 @@ def _parse_ts(ts_value) -> str | None:
         return None
     if isinstance(ts_value, (int, float)):
         try:
-            dt = datetime.utcfromtimestamp(ts_value / 1_000_000)
+            dt = datetime.fromtimestamp(ts_value / 1_000_000, tz=timezone.utc)
             return dt.isoformat() + "Z"
         except (ValueError, OSError):
             return None
@@ -259,7 +259,7 @@ class BatchIngester:
                     "proc_name": proc_short,
                     "proc_path": proc_name,
                     "pid": str(proc_id) if proc_id else "",
-                    "cmdline": str(cmdline)[:2000],
+                    "cmdline": str(cmdline),
                     "ts": ts,
                     "username": username,
                     "parent_name": parent_short,
