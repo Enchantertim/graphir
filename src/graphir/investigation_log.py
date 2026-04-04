@@ -32,8 +32,19 @@ class InvestigationLog:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.log_dir / f"investigation-{self.investigation_id}.jsonl"
-        self.entries: list[dict] = []
         self._start_time = time.time()
+
+        # Reload entries from disk if log file exists (survives MCP server restarts)
+        self.entries: list[dict] = []
+        if self.log_path.exists():
+            try:
+                with open(self.log_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            self.entries.append(json.loads(line))
+            except (json.JSONDecodeError, IOError):
+                pass  # Start fresh if file is corrupted
 
     def _make_entry(self, entry_type: str, detail: str,
                     duration_ms: int = 0, **data) -> dict:

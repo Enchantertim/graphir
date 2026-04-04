@@ -359,28 +359,58 @@ class AtomicClaim:
         }
 
 
+class CompoundConfidence(str, Enum):
+    """Compound finding confidence — richer than single-claim confidence.
+
+    CONFIRMED = all claims confirmed
+    PARTIAL = some claims confirmed, some insufficient — the confirmed parts
+              are still actionable. This prevents the "baby with bathwater"
+              problem where one unprovable theory masks confirmed attack steps.
+    INFERENCE = no claims confirmed, but some have partial support
+    INSUFFICIENT_EVIDENCE = all claims lack evidence
+    """
+    CONFIRMED = "CONFIRMED"
+    PARTIAL = "PARTIAL"
+    INFERENCE = "INFERENCE"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+
+
 @dataclass
 class Finding:
-    """A compound finding composed of atomic claims (Critique #2).
+    """A compound finding composed of atomic claims.
 
-    The narrative is built from verified atomic claims. Confidence is
-    the MINIMUM of all constituent claim confidences.
+    Confidence reflects the OVERALL finding, not just the weakest link:
+    - If ALL claims are CONFIRMED → CONFIRMED
+    - If SOME claims are CONFIRMED and others aren't → PARTIAL
+    - If NO claims are CONFIRMED but some are INFERENCE → INFERENCE
+    - If ALL claims are INSUFFICIENT → INSUFFICIENT_EVIDENCE
+
+    This prevents one unprovable theory from masking confirmed attack steps.
     """
     finding_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     narrative: str = ""
     claims: list[AtomicClaim] = field(default_factory=list)
 
     @property
-    def confidence(self) -> Confidence:
-        """Finding confidence = minimum of all claim confidences."""
+    def confidence(self) -> str:
+        """Compound finding confidence — not just min() of claims."""
         if not self.claims:
-            return Confidence.INSUFFICIENT_EVIDENCE
+            return CompoundConfidence.INSUFFICIENT_EVIDENCE.value
         levels = [c.confidence for c in self.claims]
-        if Confidence.INSUFFICIENT_EVIDENCE in levels:
-            return Confidence.INSUFFICIENT_EVIDENCE
-        if Confidence.INFERENCE in levels:
-            return Confidence.INFERENCE
-        return Confidence.CONFIRMED
+        confirmed = levels.count(Confidence.CONFIRMED)
+        inference = levels.count(Confidence.INFERENCE)
+        insufficient = levels.count(Confidence.INSUFFICIENT_EVIDENCE)
+        total = len(levels)
+
+        if confirmed == total:
+            return CompoundConfidence.CONFIRMED.value
+        elif confirmed > 0:
+            # Some confirmed, some not — PARTIAL (not dragged to minimum)
+            return CompoundConfidence.PARTIAL.value
+        elif inference > 0:
+            return CompoundConfidence.INFERENCE.value
+        else:
+            return CompoundConfidence.INSUFFICIENT_EVIDENCE.value
 
     @property
     def claim_summary(self) -> dict:
@@ -488,7 +518,7 @@ PROCESS_CHAIN_PREDICATES = [
     },
     {
         "name": "multi_source_execution",
-        "description": "Execution evidence from multiple sources — checks both Process instances (4688) and Executable binaries (prefetch/amcache/shimcache)",
+        "description": "Execution evidence from multiple sources — checks both Process instances (4688) and Executable binaries (prefetch/amcache/shimcache). NOTE: timestamps across artifact types may have skew (shimcache depends on shutdown, registry keys delay-write) — do not use strict temporal ordering across source types.",
         "cypher": """
             OPTIONAL MATCH (h1:Host)-[:EXECUTED_ON]-(p:Process)
             WHERE p.name CONTAINS $child_name
