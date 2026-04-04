@@ -160,11 +160,89 @@ def generate_sigma_rule(
     return {"rule": rule, "yaml": yaml_str, "rule_id": rule_id}
 
 
+# Known Windows service paths that are NOT suspicious — filter these out
+# to avoid generating 800+ rules for standard OS driver installations
+_KNOWN_SAFE_SERVICE_PATHS = {
+    "\\systemroot\\system32\\drivers\\",
+    "\\systemroot\\system32\\svchost.exe",
+    "\\systemroot\\system32\\lsass.exe",
+    "\\systemroot\\system32\\services.exe",
+    "system32\\drivers\\",
+    "c:\\windows\\system32\\drivers\\",
+    "c:\\windows\\system32\\svchost.exe",
+}
+
+# Service names/paths that ARE suspicious even if they look like system paths
+# Path indicators that strongly suggest attacker tooling — NOT legitimate software.
+# Deliberately excludes \programdata\ (Windows Defender runs from there).
+_SUSPICIOUS_SERVICE_INDICATORS = {
+    "psexe", "psexec", "cobalt", "beacon", "meterpreter", "payload",
+    "\\temp\\", "\\tmp\\", "\\appdata\\local\\temp",
+    "\\public\\", "\\users\\public\\",
+    "cmd.exe", "powershell", "rundll32", "regsvr32", "mshta",
+    "certutil", "bitsadmin", "wscript", "cscript", "msbuild",
+}
+
+
+def _is_suspicious_service(name: str, path: str) -> bool:
+    """Check if a service is worth generating a Sigma rule for.
+
+    Filters out the hundreds of standard Windows services/drivers to produce
+    a meaningful, curated rule set. Only flags services that are genuinely
+    unusual for a Windows installation.
+    """
+    name_lower = name.lower()
+    path_lower = path.lower().strip('"').strip("'")
+
+    # Always flag if name/path contains suspicious indicators
+    for indicator in _SUSPICIOUS_SERVICE_INDICATORS:
+        if indicator in name_lower or indicator in path_lower:
+            return True
+
+    # Filter out known safe paths (drivers, system services, program files)
+    safe_path_prefixes = [
+        "\\systemroot\\", "system32\\", "c:\\windows\\",
+        "c:\\program files\\", "c:\\program files (x86)\\",
+        "c:\\programdata\\microsoft\\",
+        "%systemroot%\\", "\"c:\\program files",
+        "\"c:\\windows\\", "\"__programfilespath__",
+        "__programfilespath__",
+    ]
+    for prefix in safe_path_prefixes:
+        if path_lower.startswith(prefix) or path_lower.startswith('"' + prefix):
+            return False
+
+    # svchost-hosted services have DLL paths or -k switches — these are Windows built-in
+    if "svchost.exe" in path_lower or "\\system32\\" in path_lower:
+        return False
+
+    # Per-user service instances (e.g., CDPUserSvc_184e4649) are standard Windows
+    import re
+    if re.search(r'_[0-9a-f]{6,}$', name_lower):
+        return False
+
+    # Known Windows Defender / security services
+    known_safe_names = {
+        "windefend", "wdnissvc", "sense", "securityhealthservice",
+        "mpssvc", "wscsvc", "wmpnetworksvc", "mdcoresvc",
+        "ibm notes diagnostics",  # common enterprise software
+    }
+    if name_lower in known_safe_names:
+        return False
+
+    # If path is empty or name is empty, skip
+    if not path or not name:
+        return False
+
+    # Flag services with unusual paths (outside Windows/ProgramFiles)
+    return True
+
+
 def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]:
     """Generate Sigma rules from a list of graphir findings.
 
-    Automatically maps finding types to appropriate Sigma logsources
-    and detection logic based on the graph evidence.
+    Deduplicates, filters known-good services, and produces a meaningful
+    curated set — not one rule per raw finding row.
     """
     rules = []
 
@@ -178,7 +256,7 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
             continue
 
         if hunt == "suspicious_process_chain":
-            # Generate rules for each unique parent→child pair
+            # One rule per unique parent→child pair
             seen = set()
             for r in results:
                 parent = r.get("ancestor") or r.get("parent", "")
@@ -209,18 +287,23 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                 ))
 
         elif hunt == "lateral_movement_logons":
+            # One rule per user (not per session), skip machine accounts
+            seen_users = set()
             for r in results:
                 user = r.get("user", "")
-                host = r.get("host", "")
-                src_ips = r.get("source_ips", [])
-                sessions = r.get("sessions", 0)
-                if not user or user == "SYSTEM":
+                if not user or user == "SYSTEM" or user.endswith("$"):
                     continue
+                if user in seen_users:
+                    continue
+                seen_users.add(user)
+
+                host = r.get("host", "")
+                sessions = r.get("sessions", 0)
 
                 rules.append(generate_sigma_rule(
-                    title=f"Network Logon: {user} to {host}",
-                    description=f"Detects network logon (Type 3/9/10) by {user} to {host}. "
-                                f"{sessions} sessions observed from {src_ips}.",
+                    title=f"Network Logon by {user}",
+                    description=f"Detects network logon (Type 3/9/10) by {user}. "
+                                f"{sessions} sessions observed to {host}.",
                     logsource_type="logon",
                     detection={
                         "selection": {
@@ -243,16 +326,29 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                 ))
 
         elif hunt == "service_installation":
+            # Filter: only generate rules for SUSPICIOUS services
+            # Skip known Windows drivers/services to avoid 800+ noise rules
+            suspicious_services = []
             for r in results:
                 svc = r.get("service", "")
                 path = r.get("path", "")
-                if not svc:
+                if svc and _is_suspicious_service(svc, path):
+                    suspicious_services.append(r)
+
+            # Individual rules for suspicious services
+            seen = set()
+            for r in suspicious_services:
+                svc = r.get("service", "")
+                if svc in seen:
                     continue
+                seen.add(svc)
+                path = r.get("path", "")
 
                 rules.append(generate_sigma_rule(
-                    title=f"Service Installation: {svc}",
+                    title=f"Suspicious Service: {svc}",
                     description=f"Detects installation of service '{svc}' "
-                                f"with path '{path}'.",
+                                f"with path '{path}'. Flagged because the service path "
+                                f"is not a standard Windows system location.",
                     logsource_type="service_install",
                     detection={
                         "selection": {
@@ -260,12 +356,41 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                             "ServiceName": svc,
                         },
                     },
-                    level="medium",
+                    level="high",
                     technique_id=technique,
                     tactic=tactic,
                     false_positives=[
-                        "Legitimate software installation",
-                        "Windows Update installing driver services",
+                        "Legitimate third-party software installation",
+                    ],
+                ))
+
+            # Also generate a generic "non-standard service path" rule
+            if not suspicious_services:
+                # No suspicious services found — generate a baseline rule
+                rules.append(generate_sigma_rule(
+                    title="Service Installation from Non-Standard Path",
+                    description="Detects installation of services with executables "
+                                "outside standard Windows directories. Common for "
+                                "attacker tools (PsExec, Cobalt Strike, etc.).",
+                    logsource_type="service_install",
+                    detection={
+                        "selection": {"EventID": 7045},
+                        "filter": {
+                            "ImagePath|startswith": [
+                                "\\SystemRoot\\System32\\",
+                                "C:\\Windows\\System32\\",
+                                "C:\\Windows\\SysWOW64\\",
+                                "C:\\Program Files\\",
+                                "C:\\Program Files (x86)\\",
+                            ],
+                        },
+                        "condition": "selection and not filter",
+                    },
+                    level="high",
+                    technique_id=technique,
+                    tactic=tactic,
+                    false_positives=[
+                        "Legitimate third-party services installed outside Program Files",
                     ],
                 ))
 
@@ -299,11 +424,11 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                 rules.append(generate_sigma_rule(
                     title="Reconnaissance Command Execution",
                     description=f"Detects execution of discovery/reconnaissance tools: "
-                                f"{', '.join(set(tools)[:10])}.",
+                                f"{', '.join(sorted(set(tools))[:10])}.",
                     logsource_type="process_creation",
                     detection={
                         "selection": {
-                            "Image|endswith": [f"\\{t}" for t in set(tools)],
+                            "Image|endswith": [f"\\{t}" for t in sorted(set(tools))],
                         },
                     },
                     level="low",
@@ -311,15 +436,18 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                     tactic=tactic,
                     false_positives=[
                         "System administrators running network diagnostics",
-                        "Monitoring scripts",
+                        "Monitoring and inventory scripts",
                     ],
                 ))
 
         elif hunt == "lsass_access":
+            # One rule per unique accessor
+            seen = set()
             for r in results:
                 accessor = r.get("accessor", "")
-                if not accessor:
+                if not accessor or accessor in seen:
                     continue
+                seen.add(accessor)
                 rules.append(generate_sigma_rule(
                     title=f"LSASS Access by {accessor}",
                     description=f"Detects {accessor} accessing LSASS memory, "
