@@ -1,0 +1,17 @@
+[project]
+name = "graphir"
+version = "0.1.0"
+description = "Graph-based Autonomous Incident Response — SANS Find Evil! Hackathon"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "neo4j>=5.0.0",
+]
+
+[project.scripts]
+graphir = "graphir.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

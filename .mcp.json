@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "graphir": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "graphir.server"],
+      "env": {
+        "GRAPHIR_NEO4J_URI": "bolt://localhost:7687",
+        "GRAPHIR_NEO4J_USER": "neo4j",
+        "GRAPHIR_NEO4J_PASSWORD": "graphir-hackathon"
+      }
+    }
+  }
+}

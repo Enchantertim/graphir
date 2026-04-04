@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+.env
+logs/*.jsonl
+data/
+evidence/
+*.jsonl
+!tests/*.jsonl
+.DS_Store
