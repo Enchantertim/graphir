@@ -69,7 +69,7 @@ def run_cypher_readonly(query: str, params: dict | None = None) -> list[dict]:
 
 
 @mcp.tool()
-def help() -> str:
+def graphir_help() -> str:
     """Show what graphir can do — investigation modes and available tools.
 
     Tell the user about the investigation modes they can use:
