@@ -106,21 +106,29 @@ def ingest_timeline(path: str, default_hostname: str = "unknown",
 
 
 @mcp.tool()
-def query_graph(cypher: str) -> str:
+def query_graph(cypher: str, max_results: int = 200) -> str:
     """Execute a READ-ONLY Cypher query against the investigation graph.
 
     Use this for ad-hoc investigation queries. The agent writes Cypher based on
     what it's investigating. Returns results as JSON.
 
-    This tool enforces read-only access — CREATE, DELETE, MERGE, SET, REMOVE,
-    and DROP are rejected. Use specific MCP tools for write operations.
+    Enforces read-only via Neo4j native read transactions (cannot be bypassed).
+    Results are capped at max_results to prevent context window overflow.
 
     Args:
         cypher: A valid read-only Cypher query string.
+        max_results: Maximum rows to return (default 200). Prevents context
+            overflow from unbounded queries like MATCH (n) RETURN n.
     """
     try:
         results = run_cypher_readonly(cypher)
-        return json.dumps(results, default=str, indent=2)
+        truncated = len(results) > max_results
+        results = results[:max_results]
+        output = {"results": results, "count": len(results)}
+        if truncated:
+            output["truncated"] = True
+            output["message"] = f"Results capped at {max_results}. Add LIMIT to your Cypher or increase max_results."
+        return json.dumps(output, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

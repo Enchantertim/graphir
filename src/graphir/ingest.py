@@ -103,14 +103,15 @@ class GraphIngester:
 
     @staticmethod
     def _normalize_hostname(name: str) -> str:
-        """Normalize FQDN to short hostname.
+        """Normalize hostname: uppercase, preserve domain for disambiguation.
 
-        'ATGEWINB0114.root.local' → 'ATGEWINB0114'
+        'ATGEWINB0114.root.local' → 'ATGEWINB0114.ROOT.LOCAL'
         'ATGEWINB0114' → 'ATGEWINB0114'
+        Preserves FQDN to prevent merging distinct machines across subdomains.
         """
         if not name:
             return name
-        return name.split(".")[0].upper()
+        return name.upper()
 
     def _get_hostname(self, event: dict) -> str:
         """Get hostname from event, with auto-discovery fallback.

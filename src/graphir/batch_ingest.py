@@ -43,17 +43,41 @@ PRIORITY_DATA_TYPES = {
 
 
 def _normalize_hostname(name: str) -> str:
+    """Normalize hostname: uppercase, preserve domain for disambiguation.
+
+    Single-label names stay as-is: 'WORKSTATION01' → 'WORKSTATION01'
+    FQDNs keep the domain: 'WEB01.dmz.local' → 'WEB01.dmz.local'
+    This prevents merging distinct machines from different subdomains.
+    """
     if not name:
         return name
-    return name.split(".")[0].upper()
+    return name.upper()
 
 
 def _parse_ts(ts_value) -> str | None:
+    """Parse timestamp with magnitude detection.
+
+    Handles: seconds, milliseconds, microseconds (Plaso default), nanoseconds.
+    Detects magnitude by checking the integer's size:
+      - < 1e10  → seconds (Unix epoch)
+      - < 1e13  → milliseconds
+      - < 1e16  → microseconds (Plaso standard)
+      - >= 1e16 → nanoseconds
+    """
     if ts_value is None:
         return None
     if isinstance(ts_value, (int, float)):
         try:
-            dt = datetime.fromtimestamp(ts_value / 1_000_000, tz=timezone.utc)
+            v = abs(ts_value)
+            if v < 1e10:
+                epoch_s = ts_value
+            elif v < 1e13:
+                epoch_s = ts_value / 1_000
+            elif v < 1e16:
+                epoch_s = ts_value / 1_000_000
+            else:
+                epoch_s = ts_value / 1_000_000_000
+            dt = datetime.fromtimestamp(epoch_s, tz=timezone.utc)
             return dt.isoformat().replace("+00:00", "Z")
         except (ValueError, OSError):
             return None
