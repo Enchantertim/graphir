@@ -104,9 +104,10 @@ def record_correction(run_cypher, correction_type: str, reason: str,
 
     # Link to entity and store claim context (finding_id, investigation_id)
     # so the correction is about a specific claim-in-context, not just an entity
+    # Use exact matching to prevent over-scoping (e.g., 'net.exe' matching 'telnet.exe')
     fallback_query = """
         OPTIONAL MATCH (target)
-        WHERE target.name CONTAINS $entity_name
+        WHERE target.name = $entity_name
            OR target.hostname = $entity_name
            OR target.service_name = $entity_name
         WITH target LIMIT 1
@@ -166,7 +167,7 @@ def check_existing_corrections(run_cypher, entity_name: str) -> list[dict]:
     """
     results = run_cypher("""
         MATCH (c:Correction)-[:CORRECTS]->(target)
-        WHERE target.name CONTAINS $name
+        WHERE target.name = $name
            OR target.hostname = $name
            OR target.service_name = $name
         RETURN c.correction_id AS id,

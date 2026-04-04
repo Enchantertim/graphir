@@ -216,26 +216,46 @@ def shortest_path(source_name: str, target_name: str,
 
 
 @mcp.tool()
-def entity_neighborhood(entity_name: str, hops: int = 2) -> str:
+def entity_neighborhood(entity_name: str, hops: int = 2,
+                        exclude_hubs: bool = True) -> str:
     """Return all entities within N hops of a given entity.
 
     The 'show me everything connected to this' query. Useful for understanding
     the context around a suspicious entity.
 
+    By default excludes Host nodes from traversal to avoid the super-node
+    problem (a Host can have millions of ON_HOST/EXECUTED_ON edges).
+
     Args:
         entity_name: Name or identifier of the entity to explore.
         hops: Number of relationship hops to traverse (default 2, max 4).
+        exclude_hubs: If True (default), exclude Host nodes from results
+            and use only attack-relevant edge types for traversal.
     """
     hops = min(hops, 4)
-    query = f"""
-        MATCH (start {{name: $name}})-[r*1..{hops}]-(neighbor)
-        UNWIND r AS rel
-        WITH DISTINCT neighbor, rel
-        RETURN labels(neighbor) AS labels, neighbor.name AS name,
-               type(rel) AS relationship, rel.timestamp AS ts
-        ORDER BY rel.timestamp
-        LIMIT 100
-    """
+    if exclude_hubs:
+        query = f"""
+            MATCH (start)-[r*1..{hops}]-(neighbor)
+            WHERE (start.name = $name OR start.name CONTAINS $name)
+              AND NONE(n IN nodes(r) WHERE n:Host)
+            UNWIND r AS rel
+            WITH DISTINCT neighbor, rel
+            WHERE NOT neighbor:Host
+            RETURN labels(neighbor) AS labels, neighbor.name AS name,
+                   type(rel) AS relationship, rel.timestamp AS ts
+            ORDER BY rel.timestamp
+            LIMIT 100
+        """
+    else:
+        query = f"""
+            MATCH (start {{name: $name}})-[r*1..{hops}]-(neighbor)
+            UNWIND r AS rel
+            WITH DISTINCT neighbor, rel
+            RETURN labels(neighbor) AS labels, neighbor.name AS name,
+                   type(rel) AS relationship, rel.timestamp AS ts
+            ORDER BY rel.timestamp
+            LIMIT 100
+        """
     try:
         results = run_cypher(query, {"name": entity_name})
         if not results:

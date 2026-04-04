@@ -588,7 +588,7 @@ PERSISTENCE_SERVICE_PREDICATES = [
     },
     {
         "name": "temporal_after_access",
-        "description": "Service install is within 24h after a logon (temporal ordering with bounded window)",
+        "description": "Service install occurred within a bounded window after a logon (default 14 days — APTs may dwell for days before persistence)",
         "cypher": """
             MATCH (e:Event)-[:ON_HOST]->(h:Host)
             WHERE (e.service_name = $service_name OR e.service_name CONTAINS $service_name
@@ -596,7 +596,7 @@ PERSISTENCE_SERVICE_PREDICATES = [
               AND e.event_id IN [7045, 4697, 'registry_service']
             WITH min(e.timestamp) AS service_ts
             MATCH (u:User)-[r:LOGGED_ON]->(h2:Host)
-            WHERE r.timestamp >= service_ts - duration('P1D')
+            WHERE r.timestamp >= service_ts - duration('P14D')
               AND r.timestamp < service_ts
             RETURN service_ts,
                    min(r.timestamp) AS nearest_logon,
