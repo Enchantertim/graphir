@@ -147,13 +147,39 @@ def generate_navigator_layer(
     return layer
 
 
-def generate_layer_from_findings(run_cypher, findings: list[dict]) -> dict:
-    """Generate Navigator layer from find_evil results + graph corrections.
+def generate_layer_from_findings(run_cypher, findings: list[dict],
+                                 investigation_log=None) -> dict:
+    """Generate Navigator layer from find_evil results + verification results.
 
-    Pulls technique IDs from hunt findings and checks for existing
-    corrections to mark techniques as CORRECTED.
+    Cross-references find_evil results with the InvestigationLog to use
+    verified confidence levels (not hardcoded INFERENCE).
     """
     techniques = []
+
+    # Build a lookup of verified confidences from the investigation log
+    verified_confidences = {}  # technique_id → highest confidence seen
+    if investigation_log:
+        for entry in investigation_log.entries:
+            if entry["entry_type"] == "finding":
+                conf = entry["data"].get("confidence", "")
+                # Extract technique from the finding detail if possible
+                detail = entry.get("detail", "").lower()
+                for f in findings:
+                    tid = f.get("technique", "")
+                    if tid and tid.lower() in detail:
+                        existing = verified_confidences.get(tid, "")
+                        if _confidence_rank(conf) > _confidence_rank(existing):
+                            verified_confidences[tid] = conf
+            elif entry["entry_type"] == "verification":
+                conf = entry["data"].get("confidence", "")
+                detail = entry.get("detail", "").lower()
+                for f in findings:
+                    tid = f.get("technique", "")
+                    if tid and (tid.lower() in detail or
+                                f.get("description", "").lower()[:30] in detail):
+                        existing = verified_confidences.get(tid, "")
+                        if _confidence_rank(conf) > _confidence_rank(existing):
+                            verified_confidences[tid] = conf
 
     # Extract techniques from findings
     for finding in findings:
@@ -165,10 +191,13 @@ def generate_layer_from_findings(run_cypher, findings: list[dict]) -> dict:
         if not technique:
             continue
 
+        # Use verified confidence if available, otherwise INFERENCE
+        confidence = verified_confidences.get(technique, "INFERENCE")
+
         techniques.append({
             "technique_id": technique,
             "tactic": tactic,
-            "confidence": "INFERENCE",  # Default — findings haven't been verified yet
+            "confidence": confidence,
             "description": finding.get("description", ""),
             "hit_count": hit_count,
             "source": f"hunt:{hunt}",

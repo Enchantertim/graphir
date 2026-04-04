@@ -701,7 +701,8 @@ def generate_attack_navigator() -> str:
                               "message": "No findings to map to ATT&CK."})
 
         # Generate layer
-        layer = generate_layer_from_findings(run_cypher, findings)
+        layer = generate_layer_from_findings(run_cypher, findings,
+                                              investigation_log=_investigation_log)
 
         # Write to disk
         result = write_navigator_layer(layer)

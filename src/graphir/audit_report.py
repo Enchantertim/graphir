@@ -54,8 +54,13 @@ def generate_audit_report(
         run_cypher, findings, investigation_log
     )
 
-    # 2. Findings detail
+    # 2. Findings detail (from automated hunts)
     report["findings"] = _build_findings_detail(findings)
+
+    # 2b. Agent-discovered findings (from manual verify_finding calls not in find_evil)
+    agent_findings = _extract_agent_findings(investigation_log, findings)
+    if agent_findings:
+        report["agent_findings"] = agent_findings
 
     # 3. Verification audit trail
     report["verification_trail"] = _build_verification_trail(investigation_log)
@@ -156,6 +161,43 @@ def _build_findings_detail(findings: list[dict]) -> list[dict]:
                 "results": result_summary,
             })
     return details
+
+
+def _extract_agent_findings(log, hunt_findings: list[dict]) -> list[dict]:
+    """Extract findings from the investigation log that aren't in find_evil.
+
+    The agent often discovers entities via ad-hoc queries and runs
+    verify_finding on them. These 'ghost findings' should appear in
+    the report alongside the automated hunt results.
+    """
+    # Get technique descriptions from hunt findings for dedup
+    hunt_descriptions = set()
+    for f in hunt_findings:
+        if isinstance(f, dict):
+            desc = f.get("description", "")[:40].lower()
+            if desc:
+                hunt_descriptions.add(desc)
+
+    agent_findings = []
+    for entry in log.entries:
+        if entry["entry_type"] == "finding":
+            detail = entry.get("detail", "")
+            confidence = entry["data"].get("confidence", "")
+
+            # Skip if this looks like it came from a find_evil hunt
+            detail_lower = detail[:40].lower()
+            if any(hd in detail_lower for hd in hunt_descriptions):
+                continue
+
+            agent_findings.append({
+                "description": detail,
+                "confidence": confidence,
+                "timestamp": entry.get("timestamp", ""),
+                "claim_summary": entry["data"].get("claim_summary", {}),
+                "source": "agent_investigation",
+            })
+
+    return agent_findings
 
 
 def _build_verification_trail(log) -> list[dict]:
@@ -336,6 +378,24 @@ def _render_markdown(report: dict) -> str:
         if f.get("hit_count", 0) > 5:
             lines.append(f"  - *... and {f['hit_count'] - 5} more*")
         lines.append("")
+
+    # Agent-discovered findings (not from automated hunts)
+    agent_findings = report.get("agent_findings", [])
+    if agent_findings:
+        lines.append("## Agent-Discovered Findings")
+        lines.append("")
+        lines.append("*These findings were discovered by the agent during manual investigation*")
+        lines.append("*and verified via `verify_finding`, but are not from the automated hunt battery.*")
+        lines.append("")
+        for af in agent_findings:
+            conf = af.get("confidence", "?")
+            lines.append(f"### [{conf}] {af.get('description', '')}")
+            lines.append(f"- **Source:** Agent investigation")
+            lines.append(f"- **Time:** {af.get('timestamp', '')[:19]}")
+            cs = af.get("claim_summary", {})
+            if cs:
+                lines.append(f"- **Claims:** {cs}")
+            lines.append("")
 
     # Verification trail
     lines.append("## Verification Audit Trail")

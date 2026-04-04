@@ -375,22 +375,21 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                     logsource_type="service_install",
                     detection={
                         "selection": {"EventID": 7045},
-                        "filter": {
+                        "filter_system": {
                             "ImagePath|startswith": [
                                 "\\SystemRoot\\System32\\",
                                 "C:\\Windows\\System32\\",
                                 "C:\\Windows\\SysWOW64\\",
-                                "C:\\Program Files\\",
-                                "C:\\Program Files (x86)\\",
                             ],
                         },
-                        "condition": "selection and not filter",
+                        "condition": "selection and not filter_system",
                     },
                     level="high",
                     technique_id=technique,
                     tactic=tactic,
                     false_positives=[
-                        "Legitimate third-party services installed outside Program Files",
+                        "Legitimate third-party software in Program Files",
+                        "Note: Program Files is NOT excluded — attackers can drop binaries there",
                     ],
                 ))
 
