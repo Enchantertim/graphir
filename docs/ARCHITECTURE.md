@@ -51,21 +51,29 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │                Neo4j 5 Community                              │     │
 │   │                graphir-neo4j (Docker)                          │     │
 │   │                                                                │     │
-│   │  Graph Schema:                                                 │     │
+│   │  Graph Schema (8 vertex types, 9 edge types):                  │     │
 │   │                                                                │     │
-│   │  (Host)──EXECUTED──>(Process)──SPAWNED──>(Process)             │     │
-│   │    │                    │                    │                  │     │
-│   │    │               ACCESSED              ACCESSED               │     │
-│   │    │                    │                    │                  │     │
-│   │    │                    ▼                    ▼                  │     │
-│   │  LOGGED_ON          (File)              (Process)              │     │
-│   │    │                                     lsass.exe             │     │
-│   │    ▼                                                           │     │
+│   │  (Process)──SPAWNED──>(Process)──ACCESSED──>(Process)          │     │
+│   │    │                    │                     lsass.exe         │     │
+│   │  EXECUTED_ON          ACCESSED                                  │     │
+│   │    │                    │                                       │     │
+│   │    ▼                    ▼                                       │     │
+│   │  (Host)──────────────(File)                                    │     │
+│   │    │         │                                                  │     │
+│   │    │    HAS_EXECUTABLE                                          │     │
+│   │    │         │                                                  │     │
+│   │    │         ▼                                                  │     │
+│   │  LOGGED_ON  (Executable) ← prefetch/amcache/shimcache          │     │
+│   │    │         (per-binary, not per-instance)                     │     │
+│   │    ▼                                                            │     │
 │   │  (User)──LOGGED_ON──>(Host)──CONNECTED_TO──>(Connection)       │     │
 │   │                                                                │     │
+│   │  (Correction)──CORRECTS──>(any entity)                         │     │
+│   │                                                                │     │
 │   │  Every entity carries _origin_* metadata                       │     │
-│   │  Constraints: Host.hostname UNIQUE, User.sid UNIQUE            │     │
-│   │  Indexes: on all temporal edges, Process(pid,ts), File(path)   │     │
+│   │  Constraints: Host.hostname, User.sid, Executable.name UNIQUE  │     │
+│   │  Indexes: Process(name), Process(pid,ts), File(path),          │     │
+│   │           Executable(path), Correction(id), all temporal edges │     │
 │   └────────────────────────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -106,9 +114,12 @@ ingest_timeline (MCP tool)
     │
     ├── Parse each JSON line
     ├── Route by data_type (evtx, prefetch, amcache, shimcache, ...)
-    ├── Create vertices: Host, User, Process, File, Connection, Event
-    ├── Create edges: EXECUTED, SPAWNED, ACCESSED, CONNECTED_TO, LOGGED_ON, MODIFIED
+    ├── Create vertices: Host, User, Process, Executable, File, Connection, Event
+    ├── Process nodes = per-instance (CREATE), Executable nodes = per-binary (MERGE)
+    ├── Create edges: EXECUTED_ON, SPAWNED, ACCESSED, CONNECTED_TO, LOGGED_ON,
+    │                  MODIFIED, HAS_EXECUTABLE, ON_HOST
     ├── Attach _origin_* metadata to every entity
+    ├── Parent process stubs marked _origin_tool='inferred_parent' (honest derivation)
     │
     ▼
 Neo4j Investigation Graph
@@ -146,6 +157,51 @@ A graph database externalises the analyst's mental model:
 - **Self-correction is structural.** "I claimed lateral movement but there's no auth edge between Host A and Host B" is a falsifiable graph query. The agent doesn't re-read text — it checks structure.
 
 The AI agent doesn't search for indicators. It traverses attack paths.
+
+## Key Design Decisions
+
+### Process vs Executable (the Identity Crisis fix)
+
+Early versions used `MERGE (p:Process {name: 'svchost.exe'})` for both 4688 process
+creation events AND prefetch/amcache/shimcache artifacts. This created a "God-Node"
+problem: 10,000 execution instances of svchost.exe collapsed into one node that all
+execution evidence connected to. The forensic link between a specific execution event
+and the artifact was completely severed.
+
+**Solution:** Two separate node types.
+- `Process` — per-instance, created with `CREATE`. Every 4688 event = new node.
+- `Executable` — per-binary, created with `MERGE` on name. One node per binary file.
+  Prefetch, amcache, shimcache connect here via `HAS_EXECUTABLE` edges.
+
+### Super-Node Exclusion in Path Traversal
+
+The Host node is a super-node: every Process connects via EXECUTED_ON, every Event
+via ON_HOST. If `shortestPath` traverses these edges, the shortest path between any
+two entities is always 2 hops through the Host hub — useless for attack chain tracing.
+
+**Solution:** `shortest_path` tool defaults to `attack_path_only=True`, traversing
+only `[:SPAWNED|ACCESSED|MODIFIED|CONNECTED_TO|LOGGED_ON]`. The Host hub is excluded
+from traversal unless explicitly requested.
+
+### Bounded Temporal Windows
+
+Temporal predicates in verification use bounded windows (e.g., 24h) instead of
+unbounded comparisons. A service install in 2026 should not be linked to a logon
+from 2021 just because the logon came first.
+
+### Honest Provenance for Inferred Entities
+
+When a Process node is created as a parent stub (the parent wasn't directly observed
+in logs), it is marked with `_origin_tool='inferred_parent'` and
+`_origin_derived_from_child_line` instead of falsely claiming the child's source line.
+Auditors see the derivation chain, not a false origin.
+
+### Read-Only Query Enforcement
+
+`query_graph` (the tool the LLM uses for ad-hoc Cypher) enforces read-only at the
+application layer — CREATE, DELETE, MERGE, SET, REMOVE, DROP are rejected. This
+prevents the LLM from accidentally or maliciously modifying the investigation graph.
+Neo4j Community lacks RBAC, so this is enforced in Python.
 
 ## Technology Choices
 

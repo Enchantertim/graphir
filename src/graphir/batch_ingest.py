@@ -53,7 +53,7 @@ def _parse_ts(ts_value) -> str | None:
     if isinstance(ts_value, (int, float)):
         try:
             dt = datetime.fromtimestamp(ts_value / 1_000_000, tz=timezone.utc)
-            return dt.isoformat() + "Z"
+            return dt.isoformat().replace("+00:00", "Z")
         except (ValueError, OSError):
             return None
     return str(ts_value)

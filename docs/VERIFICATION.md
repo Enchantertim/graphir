@@ -170,22 +170,22 @@ The following results are from graphir running against a 4.7M event Plaso timeli
 Test                                              Confidence             Predicates
 ─────────────────────────────────────────────────────────────────────────────────────
 SYSTEM Type 3 logon (TRUE)                        CONFIRMED              ✓*auth  ✓*type3  ✓conn  ✓temporal
-a-gpetrus admin logon (NOT Type 3)                INFERENCE              ✓*auth  ✗*type3  ✓conn  ✓temporal
-                                                    ↳ network_logon_type: absent_data → complementary_artifact
+a-gpetrus admin logon (NOT Type 3)                INSUFFICIENT_EVIDENCE  ✓*auth  ✗*type3(CONTRADICTORY)  ✓conn  ✓temporal
+                                                    ↳ network_logon_type: contradictory — evidence exists but all logons are Type 2
 notepad.exe LSASS dump (FAKE)                     INSUFFICIENT_EVIDENCE  ✗*lsass ✗*non_system ✓exec
                                                     ↳ lsass_access_edge: absent_data → complementary_artifact
                                                     ↳ non_system_accessor: absent_data → complementary_artifact
 PSEXESVC persistence (FAKE)                       INSUFFICIENT_EVIDENCE  ✗*svc_event ✗binary ✗temporal
                                                     ↳ service_event_exists: absent_data → complementary_artifact
 FortiFilter driver (TRUE)                         CONFIRMED              ✓*svc_event ✗binary ✓temporal
-P_Svatun interactive logon (NOT lateral movement) INFERENCE              ✓*auth  ✗*type3  ✓conn  ✓temporal
-                                                    ↳ network_logon_type: absent_data → complementary_artifact
+P_Svatun interactive logon (NOT lateral movement) INSUFFICIENT_EVIDENCE  ✓*auth  ✗*type3(CONTRADICTORY)  ✓conn  ✓temporal
+                                                    ↳ network_logon_type: contradictory — all logons are interactive, not network
 ```
 
 Key observations:
 
 - **SYSTEM Type 3 → CONFIRMED.** All four predicates pass. The SYSTEM account authenticates via network logon (Type 3), a network connection edge exists, and timestamps are coherent.
-- **a-gpetrus → INFERENCE.** The admin account logged on, but NOT via Type 3/10. The system correctly identifies this is not lateral movement — it is an interactive or service logon. The divergence on `network_logon_type` triggers a suggestion to check `complementary_artifact` (e.g., look for RDP event logs).
+- **a-gpetrus → INSUFFICIENT_EVIDENCE (CONTRADICTORY).** The admin account logged on, but ONLY via Type 2 (interactive). The system finds the evidence but determines it **contradicts** the lateral movement claim — this is not "absent data", this is "I found it, and you're wrong." The `expect_field` mechanism on the predicate enables this three-state detection.
 - **notepad.exe LSASS → INSUFFICIENT_EVIDENCE.** Both required predicates fail. No LSASS access edge, no non-system accessor. The fake claim is definitively rejected.
 - **PSEXESVC → INSUFFICIENT_EVIDENCE.** No service event, no binary, no temporal evidence. Clean rejection of a fabricated claim.
 - **FortiFilter → CONFIRMED.** Service registry entry found via CONTAINS match, temporal ordering after initial logon confirmed. Binary not found (it's a kernel driver, not a user process) but that predicate is non-required.
@@ -264,7 +264,7 @@ Each divergence records:
 | Reason | Meaning | Example |
 |--------|---------|---------|
 | `absent_data` | Required evidence not in graph | No auth edge between hosts |
-| `contradictory` | Evidence exists but contradicts claim | Logon type is 2 (interactive), not 3 (network) |
+| `contradictory` | Evidence exists but contradicts claim | User has logons but all are Type 2 (interactive), not Type 3/9/10 (network). Predicate uses `expect_field` to detect this: query returns data + `is_expected` flag. |
 | `temporal_implausible` | Timestamps don't support claimed sequence | Service install predates logon |
 | `scope_too_broad` | Query returned noise, not signal | Too many matching processes |
 | `resolution_failure` | Entity couldn't be resolved in graph | Username not found |

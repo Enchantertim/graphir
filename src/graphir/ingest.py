@@ -57,7 +57,7 @@ def _parse_timestamp(ts_value) -> str | None:
         # Plaso uses microseconds since epoch
         try:
             dt = datetime.fromtimestamp(ts_value / 1_000_000, tz=timezone.utc)
-            return dt.isoformat() + "Z"
+            return dt.isoformat().replace("+00:00", "Z")
         except (ValueError, OSError):
             return None
     if isinstance(ts_value, str):

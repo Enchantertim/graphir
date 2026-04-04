@@ -24,11 +24,19 @@ An investigation tool that reports "insufficient evidence" is more valuable than
 
 **Independence of verification paths.** The first design had Path 2 simply confirming what Path 1 inferred — a confirmatory mirror, not a validator. We redesigned the predicates to check conditions the LLM didn't explicitly reason about: temporal plausibility, network path existence, multi-source corroboration.
 
-**Compound vs. atomic verification.** Verifying a narrative like "PsExec lateral movement after credential dump" as a single blob either over-confirms or over-downgrades. Decomposing into five atomic claims with independent confidence levels solved this.
+**"Absent" vs "Contradictory" evidence.** Early verification couldn't tell the difference between "no evidence found" and "evidence found but it contradicts the claim." If the LLM claims lateral movement via Type 3 logon, but the user only has Type 2 (interactive) logons, that's not missing data — it's a contradiction. We redesigned predicates to return data with evaluation flags (`is_expected`), enabling three-state detection: absent, contradictory, or confirmed.
 
-**Hostname resolution.** Most Plaso data types (prefetch, amcache, shimcache, LNK) don't include computer_name. Only EVTX records carry it. We implemented auto-discovery: the first EVTX record's computer_name becomes the default for all other artifacts.
+**The Process God-Node.** Early versions merged all execution evidence (4688, prefetch, amcache, shimcache) into one Process node per name. This meant `svchost.exe` became a single super-node with 10,000 edges, destroying forensic specificity. We split into Process (per-execution-instance, CREATE) and Executable (per-binary, MERGE) with separate edge types.
 
-**Scale.** A real forensic timeline produces millions of events. We implemented priority-based ingestion (EVTX, prefetch, amcache, shimcache, registry, LNK, USN first) and skip non-forensic artifacts (browser cache, fs:stat) by default.
+**Super-node shortest paths.** Every Process connects to the Host node via EXECUTED_ON. The "shortest path" between any two processes was always 2 hops through the Host hub — useless. We now exclude EXECUTED_ON and ON_HOST from attack path traversals, forcing paths through forensically meaningful edges (SPAWNED, ACCESSED, MODIFIED).
+
+**Compound vs. atomic verification.** Verifying a narrative like "PsExec lateral movement after credential dump" as a single blob either over-confirms or over-downgrades. Decomposing into atomic claims with independent confidence levels solved this.
+
+**Hostname resolution.** Most Plaso data types don't include computer_name — only EVTX does. We normalize FQDNs to short uppercase hostnames and auto-discover from the first EVTX record.
+
+**Scale.** 4.7M events in a real Plaso timeline. Per-event Cypher calls took overnight. UNWIND batch ingestion (500 events per transaction) brought this down to ~100 seconds.
+
+**Parent process provenance.** Parent stubs created by SPAWNED MERGE weren't directly observed in logs. Early versions falsely attributed the child's source line to the parent. We now mark these `_origin_tool='inferred_parent'` with an explicit derivation pointer.
 
 ## Accomplishments we're proud of
 

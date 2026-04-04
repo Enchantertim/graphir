@@ -77,7 +77,7 @@ def make_origin(event: dict, source_file: str, line_num: int = 0) -> Origin:
     if isinstance(ts, (int, float)) and ts > 0:
         try:
             dt = datetime.fromtimestamp(ts / 1_000_000, tz=timezone.utc)
-            ts_str = dt.isoformat() + "Z"
+            ts_str = dt.isoformat().replace("+00:00", "Z")
         except (ValueError, OSError):
             ts_str = str(ts)
     else:

@@ -41,11 +41,11 @@ claude
                     │              ▼                            │
                     │   ┌──────────────────────┐               │
                     │   │   graphir MCP Server  │               │
-                    │   │   11 typed tools      │               │
+                    │   │   14 typed tools      │               │
                     │   │                        │               │
                     │   │  Investigation:        │               │
                     │   │   ingest_timeline      │               │
-                    │   │   query_graph          │               │
+                    │   │   query_graph (R/O)    │               │
                     │   │   find_evil            │               │
                     │   │   shortest_path        │               │
                     │   │   entity_neighborhood  │               │
@@ -57,6 +57,11 @@ claude
                     │   │   trace_origin         │               │
                     │   │   check_provenance     │               │
                     │   │    _integrity          │               │
+                    │   │                        │               │
+                    │   │  Corrections:          │               │
+                    │   │   flag_correction      │               │
+                    │   │   check_corrections    │               │
+                    │   │   investigation_summary│               │
                     │   └──────────┬─────────────┘               │
                     │              │ Bolt protocol               │
                     │              ▼                              │
@@ -66,20 +71,24 @@ claude
                     │   │                        │                 │
                     │   │   Vertices:            │                 │
                     │   │    Host, User, Process │                 │
-                    │   │    File, Connection,   │                 │
-                    │   │    Event               │                 │
+                    │   │    Executable, File,   │                 │
+                    │   │    Connection, Event,  │                 │
+                    │   │    Correction          │                 │
                     │   │                        │                 │
                     │   │   Edges:               │                 │
-                    │   │    EXECUTED, SPAWNED,   │                 │
+                    │   │    EXECUTED_ON, SPAWNED │                 │
                     │   │    ACCESSED,            │                 │
                     │   │    CONNECTED_TO,        │                 │
                     │   │    LOGGED_ON, MODIFIED  │                 │
+                    │   │    HAS_EXECUTABLE,      │                 │
+                    │   │    ON_HOST, CORRECTS    │                 │
                     │   └────────────────────────┘                 │
                     └─────────────────────────────────────────────┘
 
 Trust boundaries:
   Claude Code ←→ MCP Server : typed function interface (no shell access)
   MCP Server  ←→ Neo4j     : parameterised Cypher (no injection)
+                               query_graph enforces read-only at application layer
   MCP Server  ←→ SIFT tools: subprocess with validated arguments
 ```
 
@@ -155,14 +164,26 @@ Tested against a real 4.7M event Windows 11 forensic timeline:
 
 ```
 SYSTEM Type 3 logon (true)       → CONFIRMED              ✓*auth ✓*type3 ✓conn ✓temporal
-a-gpetrus admin logon (not T3)   → INFERENCE               ✓*auth ✗*type3 ✓conn ✓temporal
-notepad.exe LSASS dump (fake)    → INSUFFICIENT_EVIDENCE   ✗*lsass ✗*accessor ✓exec
-PSEXESVC persistence (fake)      → INSUFFICIENT_EVIDENCE   ✗*event ✗binary ✗temporal
-FortiFilter driver (true)        → CONFIRMED              ✓*event ✗binary ✓temporal
+a-gpetrus admin (not T3)         → INSUFFICIENT_EVIDENCE   ✓*auth ✗*type3(CONTRADICTORY) ✓conn ✓temporal
+notepad.exe LSASS dump (fake)    → INSUFFICIENT_EVIDENCE   ✗*lsass(absent) ✗*accessor(absent) ✓exec
+PSEXESVC persistence (fake)      → INSUFFICIENT_EVIDENCE   ✗*event(absent) ✗binary ✗temporal
 ```
 
-True claims confirmed. Fake claims rejected. Partial evidence correctly downgraded.
-Zero false confirmations.
+Three failure modes detected: CONFIRMED (evidence supports), ABSENT (no evidence),
+CONTRADICTORY (evidence exists but disproves the claim). Zero false confirmations.
+
+## Graph Model: Process vs Executable
+
+A key design decision: **Process and Executable are separate node types.**
+
+- **Process** — a specific execution instance (from Event 4688 / process creation).
+  Has PID, cmdline, timestamp, user. Created with `CREATE` — every execution is unique.
+- **Executable** — a binary on disk (from prefetch, amcache, shimcache).
+  Has name, path, SHA-1 hash, run count. Created with `MERGE` on name — one per binary.
+
+This prevents the "God-Node" problem where `MERGE (p:Process {name: 'svchost.exe'})`
+collapses 10,000 execution instances into one node. Process instances connect to each
+other via SPAWNED edges. Executables connect to Hosts via HAS_EXECUTABLE edges.
 
 ## Project Structure
 
@@ -173,18 +194,23 @@ graphir/
 ├── pyproject.toml
 ├── LICENSE                     # MIT
 ├── src/graphir/
-│   ├── server.py               # MCP server — 11 typed tools
-│   ├── graph.py                # Neo4j schema (constraints, indexes)
-│   ├── ingest.py               # Plaso JSONL → Neo4j graph ingestion
-│   ├── provenance.py           # Origin tracking, result chains, atomic claims
-│   └── verification.py         # Dual-path verification engine
+│   ├── server.py               # MCP server — 14 typed tools
+│   ├── graph.py                # Neo4j schema (8 vertex types, 9 edge types)
+│   ├── batch_ingest.py         # High-performance UNWIND batched ingestion
+│   ├── ingest.py               # Per-event ingestion (reference implementation)
+│   ├── hunts.py                # Hunt pattern definitions (7 queries)
+│   ├── provenance.py           # Origin tracking, atomic claims, predicate templates
+│   ├── verification.py         # Dual-path verification engine
+│   ├── corrections.py          # FP/hallucination tracking as graph entities
+│   └── investigation_log.py    # Structured JSONL investigation logging
 ├── docs/
 │   ├── VERIFICATION.md         # Verification architecture (detailed)
 │   ├── ACCURACY.md             # Accuracy report methodology
-│   └── ARCHITECTURE.md         # Architecture diagram + trust boundaries
+│   ├── ARCHITECTURE.md         # Architecture diagram + trust boundaries
+│   └── DEVPOST.md              # Devpost submission description
 ├── tests/
 │   └── test_data.jsonl         # Synthetic attack scenario for testing
-└── logs/                       # Investigation execution logs
+└── logs/                       # Investigation execution logs (JSONL)
 ```
 
 ## Judging Criteria Mapping
