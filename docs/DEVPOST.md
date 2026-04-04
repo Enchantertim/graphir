@@ -38,6 +38,18 @@ An investigation tool that reports "insufficient evidence" is more valuable than
 
 **Parent process provenance.** Parent stubs created by SPAWNED MERGE weren't directly observed in logs. Early versions falsely attributed the child's source line to the parent. We now mark these `_origin_tool='inferred_parent'` with an explicit derivation pointer.
 
+**Read-only enforcement.** Initial approach used string-matching to block write keywords in Cypher queries. This was trivially bypassed via APOC procedures (`CALL apoc.cypher.doIt("CREATE...")`). Replaced with Neo4j native `session.execute_read()` which enforces read-only at the database protocol level — cannot be bypassed regardless of query content.
+
+**Context window overflow.** Unbounded Cypher queries (`MATCH (n) RETURN n`) could return millions of rows, blowing the LLM's context window. Added mandatory result caps (default 200 rows) at the application layer.
+
+**Case-sensitive evasion.** Hunt patterns using `CONTAINS` were case-sensitive — an attacker typing `powershell -eNc` instead of `-enc` would bypass detection. All hunt queries now use `toLower()` for case-insensitive matching.
+
+**Event duplication on re-ingest.** Running ingestion twice on the same timeline doubled every Event node. Added deterministic SHA-256 event hashing with MERGE instead of CREATE — safe to re-ingest, deduplication is automatic (974K → 487K on first test).
+
+**Absent vs Contradictory evidence.** Early verification couldn't distinguish "no evidence found" from "evidence found but it contradicts the claim." Redesigned predicates to return data with `is_expected` evaluation flags, enabling three-state detection. A user with only Type 2 (interactive) logons is now flagged as CONTRADICTORY for a lateral movement claim, not just ABSENT.
+
+**Compound finding confidence collapse.** Using `min()` of all claim confidences meant one unprovable theory masked confirmed attack steps. Introduced PARTIAL confidence: confirmed claims remain actionable even when other claims in the same finding lack evidence.
+
 ## Accomplishments we're proud of
 
 **The verification architecture.** Most AI investigation tools re-read their own output to "verify" findings. graphir checks structural relationships in a graph database using predicates that are independent of the LLM's reasoning path. This is categorically different from self-confirmation.

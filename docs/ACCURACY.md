@@ -141,17 +141,25 @@ A successful accuracy report shows:
 
 2. **Predicate templates are finite.** The current verification engine has predicate templates for lateral movement, process chains, credential access, and persistence. Novel attack techniques without matching templates will not benefit from structural verification.
 
-3. **Hostname resolution.** Many Plaso data types (prefetch, amcache, shimcache, LNK) do not include `computer_name`. graphir auto-discovers the hostname from EVTX records, but if EVTX is absent, hostname resolution depends on the user-supplied default.
+3. **Process name trust.** Detection relies on process names which can be spoofed via process hollowing/doppelgänging. A malicious payload injected into a legitimate `svchost.exe` would bypass name-based allowlists in the credential access predicates. Future work: ancestry validation (svchost must have services.exe parent) and hash-based matching.
 
-4. **Single-host scope.** The current implementation focuses on single-host forensic images. Multi-host investigations require ingesting multiple timelines and resolving cross-host entity references.
+4. **LLM parameter selection.** The `verify_finding` tool relies on the LLM to supply entity names for verification. If the LLM hallucinates the entity parameters, it could inadvertently confirm a false claim by selecting a legitimate entity that happens to match. The predicates check structural prerequisites the LLM didn't reason about (logon type, temporal ordering), which mitigates but does not eliminate this risk.
 
-5. **LLM reasoning quality.** Path 1 (inference) quality depends on the underlying LLM. The verification architecture catches bad inferences but cannot improve them.
+5. **Artifact timestamp skew.** Different Windows artifact types have different timestamp semantics. Shimcache timestamps depend on system shutdown, registry keys use lazy-write. Strict temporal ordering comparisons across artifact types (e.g., EVTX vs amcache) may produce false TEMPORAL_IMPLAUSIBLE divergences.
+
+6. **Single-host focus.** Multi-host investigations require ingesting multiple timelines. FQDN is preserved in Host nodes for disambiguation, but cross-host entity resolution (linking the same user across different domain controllers) is basic.
+
+7. **LLM reasoning quality.** Path 1 (inference) depends on the underlying LLM. The verification architecture catches bad inferences but cannot improve them.
 
 ### Failure Modes
 
 | Failure Mode | Impact | Mitigation |
 |-------------|--------|------------|
 | Plaso parser bug | Missing or malformed events | Multiple evidence sources (prefetch + amcache + shimcache) provide redundancy |
-| Neo4j query timeout | Incomplete results on large graphs | LIMIT clauses on all queries; pagination |
-| LLM context overflow | Agent loses track of investigation state | State stored in graph, not in context window |
+| Neo4j query timeout | Incomplete results on large graphs | LIMIT clauses on all queries; result cap on query_graph (200 default) |
+| LLM context overflow | Agent loses track of investigation state | State stored in graph + JSONL log, not in context window; result caps prevent overflow |
 | Novel attack technique | No matching predicate template | Falls through to generic verification; reported as INFERENCE |
+| Process hollowing | Malicious code in legitimate binary name | Name-based detection bypassed; future: ancestry + hash validation |
+| Case-variant evasion | `powershell -eNc` vs `-enc` | Mitigated: all hunt queries use `toLower()` for case-insensitive matching |
+| Double ingestion | Duplicate events inflate counts | Mitigated: deterministic event_hash with MERGE — idempotent ingestion |
+| MCP server restart | Investigation log state lost | Mitigated: InvestigationLog reloads from JSONL on init |
