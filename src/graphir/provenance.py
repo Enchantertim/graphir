@@ -585,15 +585,17 @@ CREDENTIAL_ACCESS_PREDICATES = [
 PERSISTENCE_SERVICE_PREDICATES = [
     {
         "name": "service_event_exists",
-        "description": "Service installation event (7045/4697) or registry service entry exists",
+        "description": "Service installation event (7045/4697) or registry service entry exists. Matches by service name, path, or host.",
         "cypher": """
             MATCH (e:Event)-[:ON_HOST]->(h:Host)
-            WHERE (e.service_name = $service_name
+            WHERE e.event_id IN [7045, 4697, 'registry_service']
+              AND (e.service_name = $service_name
                    OR e.service_name CONTAINS $service_name
-                   OR e.service_path CONTAINS $service_name)
-              AND e.event_id IN [7045, 4697, 'registry_service']
+                   OR e.service_path CONTAINS $service_name
+                   OR h.hostname CONTAINS $service_name)
             RETURN e.event_id, e.service_name, e.service_path,
-                   e.timestamp, e._origin_data_type AS origin
+                   h.hostname AS host, e.timestamp,
+                   e._origin_data_type AS origin
             LIMIT 10
         """,
         "required": True,

@@ -128,9 +128,10 @@ HUNT_QUERIES = {
         "technique": "T1543.003",
     },
     "rare_processes": {
-        "description": "Rarely executed processes — anomaly detection by frequency",
+        "description": "Rarely executed processes — anomaly detection by frequency (excludes PID stubs)",
         "query": """
             MATCH (p:Process)
+            WHERE NOT p.name STARTS WITH '0x'
             WITH p.name AS proc_name, count(*) AS exec_count
             WHERE exec_count <= 2
             RETURN proc_name, exec_count
@@ -139,6 +140,7 @@ HUNT_QUERIES = {
         """,
         "summarize_query": """
             MATCH (p:Process)
+            WHERE NOT p.name STARTS WITH '0x'
             WITH p.name AS proc_name, count(*) AS exec_count,
                  collect(DISTINCT p.cmdline)[0..2] AS sample_cmdlines,
                  collect(DISTINCT p.user)[0..2] AS users

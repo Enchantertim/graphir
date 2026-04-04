@@ -73,7 +73,10 @@ def generate_audit_report(
     report["artifacts"] = _list_artifacts(output_dir)
 
     # 8. Investigation metadata
-    report["metadata"] = _build_metadata(investigation_log)
+    report["metadata"] = _build_metadata(
+        investigation_log,
+        graph_corrections_count=report["corrections"]["total"],
+    )
 
     # Write report
     report_path = Path(output_dir) / "audit-report.json"
@@ -260,7 +263,7 @@ def _list_artifacts(output_dir: str) -> list[dict]:
     return artifacts
 
 
-def _build_metadata(log) -> dict:
+def _build_metadata(log, graph_corrections_count: int = 0) -> dict:
     """Investigation session metadata."""
     summary = log.get_summary()
     return {
@@ -271,7 +274,8 @@ def _build_metadata(log) -> dict:
         "tool_calls": summary.get("by_type", {}).get("tool_call", 0),
         "verifications": summary.get("verifications", 0),
         "findings_logged": summary.get("findings", {}).get("total", 0),
-        "corrections": summary.get("corrections", 0),
+        "corrections_this_session": summary.get("corrections", 0),
+        "corrections_total_in_graph": graph_corrections_count,
         "self_corrections": summary.get("self_corrections", 0),
     }
 
@@ -398,7 +402,8 @@ def _render_markdown(report: dict) -> str:
     lines.append(f"- **Tool calls:** {meta.get('tool_calls', 0)}")
     lines.append(f"- **Verifications:** {meta.get('verifications', 0)}")
     lines.append(f"- **Findings logged:** {meta.get('findings_logged', 0)}")
-    lines.append(f"- **Corrections:** {meta.get('corrections', 0)}")
+    lines.append(f"- **Corrections (this session):** {meta.get('corrections_this_session', 0)}")
+    lines.append(f"- **Corrections (total in graph):** {meta.get('corrections_total_in_graph', 0)}")
     lines.append(f"- **Log file:** `{meta.get('log_path', '')}`")
     lines.append("")
 
