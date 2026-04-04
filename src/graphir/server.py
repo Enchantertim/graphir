@@ -173,23 +173,46 @@ def find_evil(summarize: bool = True) -> str:
 
 
 @mcp.tool()
-def shortest_path(source_name: str, target_name: str) -> str:
+def shortest_path(source_name: str, target_name: str,
+                  attack_path_only: bool = True) -> str:
     """Find the shortest path between two entities in the investigation graph.
 
     Core graph advantage: answers 'how did the attacker get from A to B?'
 
+    By default, traverses only attack-relevant edges (SPAWNED, ACCESSED,
+    MODIFIED, CONNECTED_TO, LOGGED_ON) — excludes EXECUTED_ON and ON_HOST
+    to avoid the super-node problem where every path shortcuts through the
+    Host hub node.
+
     Args:
         source_name: Name or identifier of the source entity.
         target_name: Name or identifier of the target entity.
+        attack_path_only: If True (default), only traverse attack-relevant
+            edges. Set False to include all edge types (may return trivial
+            paths through the Host node).
     """
-    query = """
-        MATCH (src {name: $source}), (dst {name: $target}),
-              path = shortestPath((src)-[*..10]-(dst))
-        RETURN [n IN nodes(path) | {labels: labels(n), name: n.name}] AS nodes,
-               [r IN relationships(path) | {type: type(r), ts: r.timestamp}] AS edges,
-               length(path) AS hops
-        LIMIT 5
-    """
+    if attack_path_only:
+        query = """
+            MATCH (src), (dst)
+            WHERE src.name CONTAINS $source AND dst.name CONTAINS $target
+            MATCH path = shortestPath(
+                (src)-[:SPAWNED|ACCESSED|MODIFIED|CONNECTED_TO|LOGGED_ON*1..10]-(dst)
+            )
+            RETURN [n IN nodes(path) | {labels: labels(n), name: n.name}] AS nodes,
+                   [r IN relationships(path) | {type: type(r), ts: r.timestamp}] AS edges,
+                   length(path) AS hops
+            LIMIT 5
+        """
+    else:
+        query = """
+            MATCH (src), (dst)
+            WHERE src.name CONTAINS $source AND dst.name CONTAINS $target
+            MATCH path = shortestPath((src)-[*..10]-(dst))
+            RETURN [n IN nodes(path) | {labels: labels(n), name: n.name}] AS nodes,
+                   [r IN relationships(path) | {type: type(r), ts: r.timestamp}] AS edges,
+                   length(path) AS hops
+            LIMIT 5
+        """
     try:
         results = run_cypher(query, {"source": source_name, "target": target_name})
         if not results:

@@ -487,12 +487,19 @@ PROCESS_CHAIN_PREDICATES = [
     },
     {
         "name": "multi_source_execution",
-        "description": "Execution evidence from multiple sources (prefetch, amcache, shimcache, EVTX)",
+        "description": "Execution evidence from multiple sources — checks both Process instances (4688) and Executable binaries (prefetch/amcache/shimcache)",
         "cypher": """
-            MATCH (h:Host)-[r:EXECUTED]->(p:Process)
+            OPTIONAL MATCH (h1:Host)-[:EXECUTED_ON]-(p:Process)
             WHERE p.name CONTAINS $child_name
-            RETURN p.name, r.source AS evidence_source, r.timestamp
-            ORDER BY r.timestamp
+            WITH collect({type: 'process_4688', name: p.name, ts: p.timestamp}) AS proc_evidence
+            OPTIONAL MATCH (h2:Host)-[r:HAS_EXECUTABLE]->(x:Executable)
+            WHERE x.name CONTAINS $child_name
+            WITH proc_evidence, collect({type: r.source, name: x.name, hash: x.sha1, ts: x.first_seen}) AS exec_evidence
+            WITH proc_evidence + exec_evidence AS all_evidence
+            UNWIND all_evidence AS e
+            WHERE e.name IS NOT NULL
+            RETURN e.type AS source, e.name AS name, e.ts AS timestamp, e.hash AS hash
+            ORDER BY e.ts
         """,
         "required": False,
     },
@@ -527,11 +534,18 @@ CREDENTIAL_ACCESS_PREDICATES = [
     },
     {
         "name": "execution_evidence",
-        "description": "Credential tool has execution evidence (prefetch, amcache)",
+        "description": "Credential tool has execution evidence — checks Process instances and Executable binaries",
         "cypher": """
-            MATCH (h:Host)-[r:EXECUTED]->(p:Process)
+            OPTIONAL MATCH (p:Process)
             WHERE p.name CONTAINS $process_name
-            RETURN p.name, r.source, r.timestamp, p.hash
+            WITH collect({type: 'process', name: p.name, ts: p.timestamp}) AS procs
+            OPTIONAL MATCH (x:Executable)
+            WHERE x.name CONTAINS $process_name
+            WITH procs, collect({type: 'executable', name: x.name, hash: x.sha1, ts: x.first_seen}) AS execs
+            WITH procs + execs AS evidence
+            UNWIND evidence AS e
+            WHERE e.name IS NOT NULL
+            RETURN e
         """,
         "required": False,
     },
@@ -573,13 +587,18 @@ PERSISTENCE_SERVICE_PREDICATES = [
     },
     {
         "name": "temporal_after_access",
-        "description": "Service install timestamp is after initial access (temporal ordering)",
+        "description": "Service install is within 24h after a logon (temporal ordering with bounded window)",
         "cypher": """
-            MATCH (e:Event {service_name: $service_name})-[:ON_HOST]->(h:Host)
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE (e.service_name = $service_name OR e.service_name CONTAINS $service_name
+                   OR e.service_path CONTAINS $service_name)
+              AND e.event_id IN [7045, 4697, 'registry_service']
             WITH min(e.timestamp) AS service_ts
             MATCH (u:User)-[r:LOGGED_ON]->(h2:Host)
-            WHERE r.timestamp < service_ts
-            RETURN service_ts, min(r.timestamp) AS earliest_logon,
+            WHERE r.timestamp >= service_ts - duration('P1D')
+              AND r.timestamp < service_ts
+            RETURN service_ts,
+                   min(r.timestamp) AS nearest_logon,
                    duration.between(min(r.timestamp), service_ts) AS delta
             LIMIT 1
         """,

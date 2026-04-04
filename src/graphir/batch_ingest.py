@@ -470,11 +470,11 @@ BATCH_QUERIES = {
         WHERE evt.parent_name <> ''
         MERGE (parent:Process {name: evt.parent_name})
         ON CREATE SET parent.path = evt.parent_path,
-                      parent._origin_tool = evt._origin_tool,
+                      parent._origin_tool = 'inferred_parent',
                       parent._origin_artifact = evt._origin_artifact,
-                      parent._origin_parser = evt._origin_parser,
+                      parent._origin_parser = 'derived_from_child',
                       parent._origin_data_type = evt._origin_data_type,
-                      parent._origin_source_line = evt._origin_source_line
+                      parent._origin_derived_from_child_line = evt._origin_source_line
         CREATE (parent)-[:SPAWNED {timestamp: datetime(evt.ts)}]->(p)
     """,
 
@@ -495,29 +495,50 @@ BATCH_QUERIES = {
         CREATE (e)-[:ON_HOST {timestamp: datetime(evt.ts)}]->(h)
     """,
 
+    # Prefetch, Amcache, Shimcache → Executable nodes (not Process instances).
+    # Process nodes are per-execution (from 4688 events). Executable nodes are
+    # per-binary — they represent the file on disk, not a running instance.
+
     "prefetch": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        MERGE (p:Process {name: evt.proc_name})
-        ON CREATE SET p.path = evt.path, p.timestamp = datetime(evt.ts)
-        SET p.run_count = evt.run_count
-        MERGE (h)-[:EXECUTED {timestamp: datetime(evt.ts), source: 'prefetch'}]->(p)
+        MERGE (x:Executable {name: evt.proc_name})
+        ON CREATE SET x.path = evt.path, x.first_seen = datetime(evt.ts)
+        SET x.run_count = evt.run_count,
+            x.last_executed = datetime(evt.ts),
+            x._origin_tool = evt._origin_tool,
+            x._origin_artifact = evt._origin_artifact,
+            x._origin_parser = evt._origin_parser,
+            x._origin_data_type = evt._origin_data_type,
+            x._origin_source_line = evt._origin_source_line
+        MERGE (h)-[:HAS_EXECUTABLE {source: 'prefetch'}]->(x)
     """,
 
     "amcache": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        MERGE (p:Process {name: evt.proc_name})
-        ON CREATE SET p.path = evt.path, p.hash = evt.sha1, p.timestamp = datetime(evt.ts)
-        MERGE (h)-[:EXECUTED {timestamp: datetime(evt.ts), source: 'amcache'}]->(p)
+        MERGE (x:Executable {name: evt.proc_name})
+        ON CREATE SET x.path = evt.path, x.first_seen = datetime(evt.ts)
+        SET x.sha1 = evt.sha1,
+            x._origin_tool = evt._origin_tool,
+            x._origin_artifact = evt._origin_artifact,
+            x._origin_parser = evt._origin_parser,
+            x._origin_data_type = evt._origin_data_type,
+            x._origin_source_line = evt._origin_source_line
+        MERGE (h)-[:HAS_EXECUTABLE {source: 'amcache'}]->(x)
     """,
 
     "shimcache": """
         UNWIND $batch AS evt
         MERGE (h:Host {hostname: evt.hostname})
-        MERGE (p:Process {name: evt.proc_name})
-        ON CREATE SET p.path = evt.path, p.timestamp = datetime(evt.ts)
-        MERGE (h)-[:EXECUTED {timestamp: datetime(evt.ts), source: 'shimcache'}]->(p)
+        MERGE (x:Executable {name: evt.proc_name})
+        ON CREATE SET x.path = evt.path, x.first_seen = datetime(evt.ts)
+        SET x._origin_tool = evt._origin_tool,
+            x._origin_artifact = evt._origin_artifact,
+            x._origin_parser = evt._origin_parser,
+            x._origin_data_type = evt._origin_data_type,
+            x._origin_source_line = evt._origin_source_line
+        MERGE (h)-[:HAS_EXECUTABLE {source: 'shimcache'}]->(x)
     """,
 
     "registry_service": """
