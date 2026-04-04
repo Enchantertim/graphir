@@ -69,6 +69,36 @@ def run_cypher_readonly(query: str, params: dict | None = None) -> list[dict]:
 
 
 @mcp.tool()
+def help() -> str:
+    """Show what graphir can do — investigation modes and available tools.
+
+    Tell the user about the investigation modes they can use:
+      find evil          — autonomous triage (run all hunts, verify, report)
+      find [keyword]     — targeted investigation (lateral movement, persistence,
+                           credentials, a process name, username, hostname)
+      find timeline      — time-bounded activity analysis
+      find report        — generate full output package from current findings
+    """
+    return json.dumps({
+        "graphir": "Graph-based Autonomous Incident Response",
+        "modes": {
+            "find evil": "Autonomous triage — run all hunt patterns, verify findings, generate reports",
+            "find lateral movement": "Focus on network logons, cross-host connections, remote services",
+            "find persistence": "Focus on service installs, registry run keys, scheduled tasks",
+            "find credentials": "Focus on LSASS access, credential dumping indicators",
+            "find [process]": "Investigate a specific process — execution chain, cmdline, parent/child",
+            "find [username]": "Investigate a user — logon history, executions, hosts touched",
+            "find [hostname]": "Investigate a host — who logged on, what ran, what was installed",
+            "find timeline [start] [end]": "Activity within a time window",
+            "find report": "Generate full output package (Sigma rules, ATT&CK layer, evidence chain)",
+        },
+        "tools": 18,
+        "verification": "Every finding is structurally verified. Confidence: CONFIRMED / PARTIAL / INFERENCE / INSUFFICIENT_EVIDENCE",
+        "tip": "Start with 'find evil' for broad triage, then drill into specific areas.",
+    }, indent=2)
+
+
+@mcp.tool()
 def ping() -> str:
     """Health check — verify the graphir MCP server is running and Neo4j is reachable."""
     try:
