@@ -291,6 +291,23 @@ def _render_markdown(report: dict) -> str:
 
     # Executive summary
     es = report["executive_summary"]
+    lines.append("## Confidence Levels")
+    lines.append("")
+    lines.append("| Level | Meaning |")
+    lines.append("|-------|---------|")
+    lines.append("| **CONFIRMED** | All required structural predicates pass. The graph contains independent evidence supporting this finding. |")
+    lines.append("| **PARTIAL** | Some claims in a compound finding are confirmed, others are not. The confirmed parts are actionable. |")
+    lines.append("| **INFERENCE** | Partial structural support exists, but verification is incomplete. Treat as a hypothesis requiring human review. |")
+    lines.append("| **INSUFFICIENT_EVIDENCE** | Required structural evidence is absent or contradicts the claim. The finding is not supported by the graph. |")
+    lines.append("| **CONTRADICTORY** | Evidence exists in the graph but actively disproves the claim (e.g., logon type is interactive, not network). |")
+    lines.append("")
+    lines.append("**Corrections** are explicit revisions to previous findings:")
+    lines.append("- **false_positive** — real evidence, wrong interpretation (analyst or agent determined it is benign)")
+    lines.append("- **unsupported** — all required predicates returned no data (claim may be outside graph coverage)")
+    lines.append("- **downgraded** — mixed predicate results, confidence reduced")
+    lines.append("- **hallucination** — agent explicitly determined the claim was fabricated (reserved for clear cases)")
+    lines.append("")
+
     lines.append("## Executive Summary")
     lines.append("")
     lines.append(f"- **Hosts:** {', '.join(es.get('hosts_investigated', []))}")
