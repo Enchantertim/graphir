@@ -104,20 +104,21 @@ def generate_sigma_rule(
     level = level.lower() if level.lower() in SIGMA_LEVELS else "medium"
     logsource = LOGSOURCE_MAP.get(logsource_type, {"product": "windows"})
 
-    # Build detection block
+    # Build detection block — copy all keys (selection, filter, filter_*, selection_*)
     sigma_detection = {}
-    if "selection" in detection:
-        sigma_detection["selection"] = detection["selection"]
-    if "filter" in detection:
-        sigma_detection["filter"] = detection["filter"]
+    for key, value in detection.items():
+        if key != "condition":
+            sigma_detection[key] = value
 
     # Build condition
     if "condition" in detection:
         sigma_detection["condition"] = detection["condition"]
-    elif "filter" in detection:
-        sigma_detection["condition"] = "selection and not filter"
     else:
-        sigma_detection["condition"] = "selection"
+        filter_keys = [k for k in detection if k.startswith("filter")]
+        if filter_keys:
+            sigma_detection["condition"] = "selection and not " + " and not ".join(filter_keys)
+        else:
+            sigma_detection["condition"] = "selection"
 
     # Build tags
     tags = []
