@@ -212,7 +212,7 @@ HUNT_QUERIES = {
         "technique": "T1082",
     },
 
-    # --- Additional hunts (8 more → 15 total) ---
+    # --- Additional hunts ---
 
     "scheduled_tasks": {
         "description": "Scheduled task creation or modification events",

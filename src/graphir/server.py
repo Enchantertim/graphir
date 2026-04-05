@@ -110,6 +110,79 @@ def ping() -> str:
 
 
 @mcp.tool()
+def run_plaso(image_path: str, output_dir: str = "data") -> str:
+    """Run log2timeline + psort on a forensic disk image to produce a Plaso JSON-L timeline.
+
+    This wraps the SIFT Workstation tools (log2timeline, psort) into a single
+    MCP tool call. The output .njson file can then be fed to ingest_timeline.
+
+    Supports: E01, raw (.dd, .img, .raw), VMDK, split images.
+    Requires: log2timeline and psort installed (available on SIFT Workstation).
+
+    Args:
+        image_path: Path to the forensic disk image.
+        output_dir: Directory to write .plaso and .njson files (default: data/).
+    """
+    import subprocess
+    import shutil
+    from pathlib import Path
+
+    # Check tools exist
+    log2timeline = shutil.which("log2timeline") or shutil.which("log2timeline.py")
+    psort_cmd = shutil.which("psort") or shutil.which("psort.py")
+
+    if not log2timeline:
+        return json.dumps({"error": "log2timeline not found. Install Plaso or run on SIFT Workstation."})
+    if not psort_cmd:
+        return json.dumps({"error": "psort not found. Install Plaso or run on SIFT Workstation."})
+
+    img = Path(image_path)
+    if not img.exists():
+        return json.dumps({"error": f"Image not found: {image_path}"})
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = img.stem
+    plaso_path = out_dir / f"{stem}.plaso"
+    njson_path = out_dir / f"{stem}.njson"
+
+    try:
+        # Run log2timeline
+        result = subprocess.run(
+            [log2timeline, "--storage_file", str(plaso_path), "--status_view", "none", str(img)],
+            capture_output=True, text=True, timeout=7200,  # 2h max
+        )
+        if result.returncode != 0:
+            return json.dumps({"error": f"log2timeline failed: {result.stderr[:500]}"})
+
+        # Run psort
+        result = subprocess.run(
+            [psort_cmd, "--status_view", "none", "-o", "json_line", "-w", str(njson_path), str(plaso_path)],
+            capture_output=True, text=True, timeout=3600,  # 1h max
+        )
+        if result.returncode != 0:
+            return json.dumps({"error": f"psort failed: {result.stderr[:500]}"})
+
+        # Count events
+        line_count = sum(1 for _ in open(njson_path))
+        size_mb = njson_path.stat().st_size / (1024 * 1024)
+
+        return json.dumps({
+            "status": "ok",
+            "njson_path": str(njson_path),
+            "plaso_path": str(plaso_path),
+            "events": line_count,
+            "size_mb": round(size_mb, 1),
+            "message": f"Timeline ready. Run: ingest_timeline('{njson_path}')",
+        }, indent=2)
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "Processing timed out (>2h for log2timeline or >1h for psort)"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
 def ingest_timeline(path: str, default_hostname: str = "unknown",
                     priority_only: bool = True, max_events: int = 0) -> str:
     """Ingest a Plaso JSON-L timeline file into the Neo4j investigation graph.

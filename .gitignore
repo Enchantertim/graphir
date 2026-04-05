@@ -12,3 +12,4 @@ evidence/
 !tests/*.jsonl
 .DS_Store
 investigation-output/
+*.log.gz

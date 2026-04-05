@@ -29,6 +29,25 @@ claude
 > how do we stop this?
 ```
 
+## Validated Against Real Compromised Machines
+
+**Windows XP workstation (DT043) — real 2011 CSIRT investigation:**
+graphir autonomously found 7 of 8 indicators from the original forensic report:
+PsExec lateral movement, NETLOGON malware distribution from a compromised DC,
+admin$ payload deployment, scheduled task abuse, and two persistence DLLs
+(mso11.dll + ado.dll) hiding among thousands of legitimate files in Common Files — 
+detected via MACB temporal anomaly (born within 1 second on the incident date).
+Only miss: spoolsv.exe C2 beacon (requires memory analysis).
+
+**Multi-host SANS 508 (4 machines, 1 incident):**
+Full APT reconstruction in 8 minutes 50 seconds. Identified the attacker account
+(vibranium), traced lateral movement from workstation to domain controller,
+found Mimikatz variant (hydrakatz.exe) deployed to multiple hosts, mapped
+11 ATT&CK techniques, generated 7 Sigma rules, self-corrected 1 false positive.
+
+**Clean Win11 Pro workstation:** Zero false positives. Correctly identified
+as clean with IR responder activity only.
+
 ## Architecture
 
 ```

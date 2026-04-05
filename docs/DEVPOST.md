@@ -12,9 +12,11 @@ An investigation tool that reports "insufficient evidence" is more valuable than
 
 ## How we built it
 
-**MCP Server (Python):** 11 typed tools exposed to Claude Code via the Model Context Protocol. Investigation tools (query_graph, find_evil, shortest_path, entity_neighborhood, temporal_chain), an ingestion tool (ingest_timeline for Plaso JSON-L), and verification tools (verify_finding, trace_origin, check_provenance_integrity).
+**MCP Server (Python):** 21 typed tools exposed to Claude Code via the Model Context Protocol. Investigation tools (find_evil with 19 hunt patterns, query_graph, shortest_path, entity_neighborhood, temporal_chain), ingestion tools (ingest_timeline, ingest_multi for multi-host), verification tools (verify_finding, trace_origin, check_provenance_integrity), correction tools (flag_correction, check_corrections), and output generators (Sigma rules, ATT&CK Navigator, evidence chain, audit report).
 
-**Neo4j Graph:** 6 vertex types (Host, User, Process, File, Connection, Event) and 6 edge types (EXECUTED, SPAWNED, ACCESSED, CONNECTED_TO, LOGGED_ON, MODIFIED). Every entity carries `_origin_*` metadata tracing it back to the raw forensic artifact that produced it.
+graphir is a custom MCP server implementing **architectural approach #2** from the hackathon guidelines, providing typed forensic functions as an alternative to Protocol SIFT's shell-based tool surface.
+
+**Neo4j Graph:** 8 vertex types (Host, User, Process, Executable, File, Connection, Event, Correction) and 9 edge types (EXECUTED_ON, SPAWNED, ACCESSED, CONNECTED_TO, LOGGED_ON, MODIFIED, HAS_EXECUTABLE, ON_HOST, CORRECTS). Every entity carries `_origin_*` metadata tracing it back to the raw forensic artifact that produced it. MACB timestamps (born, modified, accessed, changed) preserved on File nodes.
 
 **Verification Architecture:** Findings decompose into atomic claims. Each claim is verified against structural predicates that check prerequisites the LLM didn't explicitly reason about — temporal plausibility, multi-source corroboration, authentication edge existence, process ancestry consistency. Three mechanical confidence levels: CONFIRMED, INFERENCE, INSUFFICIENT_EVIDENCE.
 
