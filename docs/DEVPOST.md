@@ -16,6 +16,8 @@ An investigation tool that reports "insufficient evidence" is more valuable than
 
 graphir is a custom MCP server implementing **architectural approach #2** from the hackathon guidelines, providing typed forensic functions as an alternative to Protocol SIFT's shell-based tool surface.
 
+graphir works on whatever evidence you could actually collect during an active incident. Full disk image? KAPE targeted collection? Individual EVTX exports? Same ingest path, same investigation quality, same graph. Anything Plaso can parse is graphir-ingestible — the tool meets IR reality instead of assuming a luxury collection.
+
 **Neo4j Graph:** 8 vertex types (Host, User, Process, Executable, File, Connection, Event, Correction) and 9 edge types (EXECUTED_ON, SPAWNED, ACCESSED, CONNECTED_TO, LOGGED_ON, MODIFIED, HAS_EXECUTABLE, ON_HOST, CORRECTS). Every entity carries `_origin_*` metadata tracing it back to the raw forensic artifact that produced it. MACB timestamps (born, modified, accessed, changed) preserved on File nodes.
 
 **Verification Architecture:** Findings decompose into atomic claims. Each claim is verified against structural predicates that check prerequisites the LLM didn't explicitly reason about — temporal plausibility, multi-source corroboration, authentication edge existence, process ancestry consistency. Three mechanical confidence levels: CONFIRMED, INFERENCE, INSUFFICIENT_EVIDENCE.
@@ -65,6 +67,8 @@ graphir is a custom MCP server implementing **architectural approach #2** from t
 **Provenance coverage.** 99.7% of entities traceable to raw artifacts. An auditor can walk from any finding to the exact source line in the Plaso JSONL.
 
 **Honest accuracy reporting.** The system reports what it cannot prove. All XP findings are INFERENCE (not CONFIRMED) because XP lacks EVTX process chains — and the report explains why.
+
+**Human oversight at the review layer, not the execution layer.** graphir produces a complete evidence chain — every finding traces through provenance metadata back to the raw artifact, with structural verification at each step. An analyst reviewing a graphir investigation spends 5 minutes validating the chain, not 5 hours validating every tool call.
 
 ## What we learned
 

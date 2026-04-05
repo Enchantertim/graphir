@@ -29,6 +29,14 @@ claude
 > how do we stop this?
 ```
 
+## Works With Whatever Evidence You Actually Have
+
+graphir works on whatever evidence you could collect during an active incident.
+Full disk image? Great. KAPE targeted collection grabbed in 15 minutes while the
+adversary is still on the box? Also great — same ingest path, same investigation
+quality, same graph. The tool meets IR reality instead of assuming a luxury
+collection. Anything Plaso can parse is graphir-ingestible.
+
 ## Validated Against Real Compromised Machines
 
 **Windows XP workstation (DT043) — real 2011 CSIRT investigation:**

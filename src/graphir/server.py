@@ -298,22 +298,27 @@ def find_evil(summarize: bool = True) -> str:
                   Set False for full raw results (may be large).
     """
     findings = []
+    MAX_RESULTS_PER_HUNT = 10  # Cap per-hunt results to keep output manageable
 
     for hunt_name, hunt in HUNT_QUERIES.items():
         try:
             q = hunt.get("summarize_query") if summarize else hunt["query"]
             results = run_cypher(q)
             if results:
-                findings.append(
-                    {
-                        "hunt": hunt_name,
-                        "description": hunt["description"],
-                        "tactic": hunt["tactic"],
-                        "technique": hunt["technique"],
-                        "hit_count": len(results),
-                        "results": results,
-                    }
-                )
+                total_count = len(results)
+                capped = results[:MAX_RESULTS_PER_HUNT]
+                entry = {
+                    "hunt": hunt_name,
+                    "description": hunt["description"],
+                    "tactic": hunt["tactic"],
+                    "technique": hunt["technique"],
+                    "hit_count": total_count,
+                    "results": capped,
+                }
+                if total_count > MAX_RESULTS_PER_HUNT:
+                    entry["truncated"] = True
+                    entry["showing"] = MAX_RESULTS_PER_HUNT
+                findings.append(entry)
         except Exception as e:
             findings.append(
                 {"hunt": hunt_name, "error": str(e)}
