@@ -207,4 +207,212 @@ HUNT_QUERIES = {
         "tactic": "Discovery",
         "technique": "T1082",
     },
+
+    # --- Additional hunts (8 more → 15 total) ---
+
+    "scheduled_tasks": {
+        "description": "Scheduled task creation or modification events",
+        "query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id IN [4698, 4702, 106]
+            RETURN e.event_id AS event_id, e.message AS message,
+                   h.hostname AS host, e.timestamp AS ts
+            ORDER BY e.timestamp
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id IN [4698, 4702, 106]
+            WITH e.event_id AS event_id, count(*) AS cnt,
+                 h.hostname AS host,
+                 min(e.timestamp) AS first_seen, max(e.timestamp) AS last_seen
+            RETURN event_id, cnt, host, first_seen, last_seen
+            ORDER BY cnt DESC
+            LIMIT 20
+        """,
+        "tactic": "Persistence",
+        "technique": "T1053",
+    },
+    "registry_persistence": {
+        "description": "Registry modifications to known persistence locations (Run, RunOnce, Services, Winlogon)",
+        "query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id = 'registry_mod'
+              AND e.is_persistence = true
+            RETURN e.key_path AS key, e.values AS values,
+                   h.hostname AS host, e.timestamp AS ts
+            ORDER BY e.timestamp
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id = 'registry_mod'
+              AND e.is_persistence = true
+            WITH e.key_path AS key, count(*) AS modifications,
+                 h.hostname AS host,
+                 min(e.timestamp) AS first_seen, max(e.timestamp) AS last_seen
+            RETURN key, modifications, host, first_seen, last_seen
+            ORDER BY modifications DESC
+            LIMIT 20
+        """,
+        "tactic": "Persistence",
+        "technique": "T1547.001",
+    },
+    "log_clearing": {
+        "description": "Security/System log clearing events — potential defense evasion",
+        "query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id IN [1102, 104, 1100]
+            RETURN e.event_id AS event_id, e.source AS source,
+                   e.message AS message, h.hostname AS host, e.timestamp AS ts
+            ORDER BY e.timestamp
+            LIMIT 50
+        """,
+        "summarize_query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id IN [1102, 104, 1100]
+            WITH e.event_id AS event_id, e.source AS source, count(*) AS cnt,
+                 h.hostname AS host,
+                 min(e.timestamp) AS first_seen, max(e.timestamp) AS last_seen
+            RETURN event_id, source, cnt, host, first_seen, last_seen
+            ORDER BY first_seen
+            LIMIT 20
+        """,
+        "tactic": "Defense Evasion",
+        "technique": "T1070.001",
+    },
+    "dll_sideloading": {
+        "description": "Processes loading DLLs from non-standard locations — potential sideloading",
+        "query": """
+            MATCH (p:Process)-[:ACCESSED]->(f:File)
+            WHERE f.name ENDS WITH '.dll'
+              AND NOT f.path STARTS WITH 'C:\\Windows\\'
+              AND NOT f.path STARTS WITH 'C:\\Program Files'
+            RETURN p.name AS process, f.path AS dll_path,
+                   p.timestamp AS ts
+            ORDER BY p.timestamp
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (p:Process)-[:ACCESSED]->(f:File)
+            WHERE toLower(f.name) ENDS WITH '.dll'
+              AND NOT toLower(f.path) STARTS WITH 'c:\\windows\\'
+              AND NOT toLower(f.path) STARTS WITH 'c:\\program files'
+            WITH f.path AS dll_path, count(*) AS load_count,
+                 collect(DISTINCT p.name)[0..3] AS loaded_by,
+                 min(p.timestamp) AS first_seen, max(p.timestamp) AS last_seen
+            RETURN dll_path, load_count, loaded_by, first_seen, last_seen
+            ORDER BY load_count DESC
+            LIMIT 20
+        """,
+        "tactic": "Defense Evasion",
+        "technique": "T1574.002",
+    },
+    "suspicious_file_creation": {
+        "description": "Files created in temp, AppData, or user-writable directories",
+        "query": """
+            MATCH (h:Host)-[:MODIFIED]->(f:File)
+            WHERE toLower(f.path) CONTAINS '\\temp\\' OR toLower(f.path) CONTAINS '\\appdata\\'
+               OR toLower(f.path) CONTAINS '\\downloads\\' OR toLower(f.path) CONTAINS '\\public\\'
+            RETURN f.name AS file_name, f.path AS path,
+                   h.hostname AS host, f.timestamp AS ts
+            ORDER BY f.timestamp
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (h:Host)-[:MODIFIED]->(f:File)
+            WHERE toLower(f.path) CONTAINS '\\\\temp\\\\' OR toLower(f.path) CONTAINS '\\\\appdata\\\\'
+               OR toLower(f.path) CONTAINS '\\\\downloads\\\\' OR toLower(f.path) CONTAINS '\\\\public\\\\'
+            WITH f.extension AS ext, count(*) AS file_count,
+                 collect(DISTINCT f.name)[0..5] AS sample_files,
+                 h.hostname AS host,
+                 min(f.timestamp) AS first_seen, max(f.timestamp) AS last_seen
+            RETURN ext, file_count, sample_files, host, first_seen, last_seen
+            ORDER BY file_count DESC
+            LIMIT 20
+        """,
+        "tactic": "Execution",
+        "technique": "T1204",
+    },
+    "failed_logons": {
+        "description": "Failed logon attempts (4625) — potential brute force or credential stuffing",
+        "query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id = 4625
+            RETURN e.message AS message, h.hostname AS host, e.timestamp AS ts
+            ORDER BY e.timestamp
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id = 4625
+            WITH h.hostname AS host, count(*) AS failures,
+                 min(e.timestamp) AS first_seen, max(e.timestamp) AS last_seen
+            RETURN host, failures, first_seen, last_seen,
+                   duration.between(first_seen, last_seen) AS window
+            ORDER BY failures DESC
+            LIMIT 20
+        """,
+        "tactic": "Credential Access",
+        "technique": "T1110",
+    },
+    "privilege_escalation": {
+        "description": "Special privilege assignment (4672) — tracks who gets elevated privileges",
+        "query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id = 4672
+            RETURN e.message AS message, h.hostname AS host, e.timestamp AS ts
+            ORDER BY e.timestamp DESC
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (e:Event)-[:ON_HOST]->(h:Host)
+            WHERE e.event_id = 4672
+            WITH h.hostname AS host, count(*) AS assignments,
+                 min(e.timestamp) AS first_seen, max(e.timestamp) AS last_seen
+            RETURN host, assignments, first_seen, last_seen
+            ORDER BY assignments DESC
+            LIMIT 20
+        """,
+        "tactic": "Privilege Escalation",
+        "technique": "T1078",
+    },
+    "unusual_executables": {
+        "description": "Executables with evidence from non-standard paths — amcache/shimcache/prefetch outside Windows/ProgramFiles",
+        "query": """
+            MATCH (h:Host)-[:HAS_EXECUTABLE]->(x:Executable)
+            WHERE x.path IS NOT NULL
+              AND NOT toLower(x.path) STARTS WITH 'c:\\windows'
+              AND NOT toLower(x.path) STARTS WITH 'c:\\program files'
+              AND NOT toLower(x.path) STARTS WITH '\\systemroot'
+              AND NOT x.path STARTS WITH '0'
+            RETURN x.name AS name, x.path AS path, x.sha1 AS hash,
+                   x.run_count AS runs, h.hostname AS host
+            ORDER BY x.path
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (h:Host)-[:HAS_EXECUTABLE]->(x:Executable)
+            WHERE x.path IS NOT NULL
+              AND NOT toLower(x.path) STARTS WITH 'c:\\\\windows'
+              AND NOT toLower(x.path) STARTS WITH 'c:\\\\program files'
+              AND NOT toLower(x.path) STARTS WITH '\\\\systemroot'
+              AND NOT x.path STARTS WITH '0'
+            WITH CASE
+                   WHEN toLower(x.path) CONTAINS '\\\\temp\\\\' THEN 'SUSPICIOUS_temp'
+                   WHEN toLower(x.path) CONTAINS '\\\\appdata\\\\' THEN 'user_appdata'
+                   WHEN toLower(x.path) CONTAINS '\\\\users\\\\' THEN 'user_profile'
+                   WHEN toLower(x.path) CONTAINS '\\\\device\\\\' THEN 'external_device'
+                   ELSE 'other'
+                 END AS location,
+                 count(*) AS exe_count,
+                 collect(x.name)[0..5] AS samples,
+                 h.hostname AS host
+            RETURN location, exe_count, samples, host
+            ORDER BY location
+            LIMIT 20
+        """,
+        "tactic": "Execution",
+        "technique": "T1059",
+    },
 }

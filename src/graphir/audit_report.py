@@ -77,7 +77,10 @@ def generate_audit_report(
     # 7. Output artifacts
     report["artifacts"] = _list_artifacts(output_dir)
 
-    # 8. Investigation metadata
+    # 8. Paths not taken — what the investigation checked and ruled out
+    report["paths_not_taken"] = _build_paths_not_taken(findings, investigation_log)
+
+    # 9. Investigation metadata
     report["metadata"] = _build_metadata(
         investigation_log,
         graph_corrections_count=report["corrections"]["total"],
@@ -140,27 +143,106 @@ def _build_executive_summary(run_cypher, findings, log) -> dict:
 
 def _build_findings_detail(findings: list[dict]) -> list[dict]:
     """Structured finding details with results and context."""
+    # Standard limits used in summarize queries
+    KNOWN_LIMITS = {20, 30, 50}
+
     details = []
     for f in findings:
         if isinstance(f, dict) and "hunt" in f:
-            # Summarize results for readability
             results = f.get("results", [])
+            hit_count = f.get("hit_count", 0)
+
+            # Clean results for readability
             result_summary = []
             for r in results[:10]:
-                # Extract the most informative fields
                 clean = {k: v for k, v in r.items()
                          if v is not None and v != "" and v != []}
                 result_summary.append(clean)
 
-            details.append({
+            # Detect if results were capped by query LIMIT
+            results_note = ""
+            if hit_count in KNOWN_LIMITS:
+                results_note = (
+                    f"Results capped at {hit_count} by query limit. "
+                    f"Additional matches may exist in the graph — use "
+                    f"query_graph with a higher LIMIT for exhaustive results."
+                )
+
+            entry = {
                 "hunt": f.get("hunt"),
                 "technique": f.get("technique"),
                 "tactic": f.get("tactic"),
                 "description": f.get("description"),
-                "hit_count": f.get("hit_count", 0),
+                "hit_count": hit_count,
                 "results": result_summary,
-            })
+            }
+            if results_note:
+                entry["results_note"] = results_note
+
+            details.append(entry)
     return details
+
+
+def _build_paths_not_taken(findings: list[dict], log) -> dict:
+    """Document what the investigation looked for but did NOT find.
+
+    This is as important as the findings themselves — it tells the reader
+    what attack vectors were checked and ruled out. Absence of evidence
+    is documented evidence of absence (within the scope of the data).
+    """
+    # All possible hunt categories
+    all_hunts = {
+        "suspicious_process_chain": "Suspicious process ancestry chains (LOLBins, WMI, shell spawning)",
+        "lateral_movement_logons": "Network/RDP logons across hosts (Type 3/9/10)",
+        "lsass_access": "LSASS memory access (credential dumping)",
+        "service_installation": "Service installations from non-standard paths",
+        "rare_processes": "Rarely executed processes (anomaly detection)",
+        "encoded_commands": "Encoded/obfuscated PowerShell or command lines",
+        "discovery_commands": "Reconnaissance tools (whoami, net, ipconfig, etc.)",
+        "scheduled_tasks": "Scheduled task creation/modification",
+        "registry_persistence": "Registry persistence keys (Run, RunOnce, Winlogon)",
+        "log_clearing": "Security/System log clearing events",
+        "dll_sideloading": "DLL loads from non-standard locations",
+        "suspicious_file_creation": "Files created in temp/AppData/Downloads",
+        "failed_logons": "Failed logon attempts (brute force indicators)",
+        "privilege_escalation": "Special privilege assignments",
+        "unusual_executables": "Executables from non-standard paths (amcache/shimcache)",
+    }
+
+    # Which hunts fired
+    hunts_with_results = set()
+    for f in findings:
+        if isinstance(f, dict) and f.get("hit_count", 0) > 0:
+            hunts_with_results.add(f.get("hunt", ""))
+
+    # Which hunts were empty
+    hunts_checked_clean = {}
+    for f in findings:
+        if isinstance(f, dict) and f.get("hit_count", 0) == 0:
+            hunt = f.get("hunt", "")
+            if hunt in all_hunts:
+                hunts_checked_clean[hunt] = all_hunts[hunt]
+
+    # Which hunts weren't run (not in findings at all)
+    hunts_run = {f.get("hunt", "") for f in findings if isinstance(f, dict)}
+    hunts_not_run = {k: v for k, v in all_hunts.items() if k not in hunts_run}
+
+    # Also check verification log for ad-hoc queries that returned empty
+    empty_queries = 0
+    for entry in log.entries:
+        if entry["entry_type"] == "tool_call":
+            data = entry.get("data", {})
+            if "0 results" in str(data.get("result_summary", "")):
+                empty_queries += 1
+
+    return {
+        "hunts_with_results": list(hunts_with_results),
+        "hunts_checked_clean": hunts_checked_clean,
+        "hunts_not_available": hunts_not_run,
+        "empty_ad_hoc_queries": empty_queries,
+        "note": "These categories were actively checked and returned no results. "
+                "Absence of findings in these areas is documented, not overlooked.",
+    }
 
 
 def _extract_agent_findings(log, hunt_findings: list[dict]) -> list[dict]:
@@ -377,6 +459,9 @@ def _render_markdown(report: dict) -> str:
                 lines.append(f"  - {' | '.join(parts[:4])}")
         if f.get("hit_count", 0) > 5:
             lines.append(f"  - *... and {f['hit_count'] - 5} more*")
+        note = f.get("results_note", "")
+        if note:
+            lines.append(f"  > **Note:** {note}")
         lines.append("")
 
     # Agent-discovered findings (not from automated hunts)
@@ -461,6 +546,33 @@ def _render_markdown(report: dict) -> str:
     for n in go.get("nodes", []):
         lines.append(f"- **{n.get('label', '?')}:** {n.get('cnt', 0):,}")
     lines.append("")
+
+    # Paths not taken
+    pnt = report.get("paths_not_taken", {})
+    if pnt:
+        lines.append("## Paths Not Taken (Negative Evidence)")
+        lines.append("")
+        lines.append(f"*{pnt.get('note', '')}*")
+        lines.append("")
+
+        clean = pnt.get("hunts_checked_clean", {})
+        if clean:
+            lines.append("**Checked and found clean:**")
+            for hunt, desc in clean.items():
+                lines.append(f"- {desc}")
+            lines.append("")
+
+        not_avail = pnt.get("hunts_not_available", {})
+        if not_avail:
+            lines.append("**Not checked (data not available in graph):**")
+            for hunt, desc in not_avail.items():
+                lines.append(f"- {desc}")
+            lines.append("")
+
+        eq = pnt.get("empty_ad_hoc_queries", 0)
+        if eq:
+            lines.append(f"**Ad-hoc queries returning no results:** {eq}")
+            lines.append("")
 
     # Artifacts
     lines.append("## Output Artifacts")
