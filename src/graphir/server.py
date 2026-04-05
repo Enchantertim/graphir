@@ -17,6 +17,7 @@ from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, wri
 from graphir.navigator import generate_layer_from_findings, write_navigator_layer
 from graphir.evidence_chain import generate_evidence_chain, write_evidence_chain
 from graphir.enrichment import vt_hash_lookup, enrich_executables_from_graph, enrich_files_by_hash
+from graphir.report_render import render_report
 from graphir.audit_report import generate_audit_report
 from graphir.investigation_log import InvestigationLog
 
@@ -924,6 +925,40 @@ def generate_audit_report_tool() -> str:
             f"{result['provenance_coverage']} provenance",
         )
 
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# --- Report Rendering ---
+
+
+@mcp.tool()
+def render_investigation_report(formats: str = "md,pdf,docx") -> str:
+    """Render the audit report to multiple formats: PDF, DOCX, Markdown.
+
+    Takes the existing audit-report.md and renders it via pandoc.
+    Markdown is the source of truth — PDF and DOCX are render targets:
+      - PDF: for board/legal/compliance (formatted, professional)
+      - DOCX: for analysts (copy-paste into existing reports)
+      - MD: for IR teams (version control, tooling, portability)
+
+    Requires pandoc installed (available on SIFT Workstation).
+    PDF requires a LaTeX engine (pdflatex/xelatex).
+
+    Args:
+        formats: Comma-separated list of formats. Default: "md,pdf,docx".
+                 Supported: md, pdf, docx, html.
+    """
+    md_path = "investigation-output/audit-report.md"
+    fmt_list = [f.strip() for f in formats.split(",") if f.strip()]
+
+    try:
+        result = render_report(md_path, output_dir="investigation-output", formats=fmt_list)
+        _investigation_log.log_tool_call(
+            "render_investigation_report", {"formats": fmt_list},
+            f"Rendered: {list(result.get('rendered', {}).keys())}",
+        )
         return json.dumps(result, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})

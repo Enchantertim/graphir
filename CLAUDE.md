@@ -8,7 +8,7 @@ The user says **"find [mode]"**:
 
 - **`find evil`** — Full autonomous triage: `find_evil` → verify findings → trace attack chains → generate output package
 - **`find [keyword]`** — Targeted: lateral movement, persistence, credentials, a process/user/hostname, timeline
-- **`find report`** — Generate all output: Sigma rules, ATT&CK Navigator, evidence chain, audit report
+- **`find report`** — Generate all output: Sigma rules, ATT&CK Navigator, evidence chain, audit report (MD + PDF + DOCX)
 
 ## Verification Protocol
 
@@ -43,7 +43,8 @@ The user says **"find [mode]"**:
 | Ingestion | `ingest_timeline` |
 | Verification | `verify_finding`, `trace_origin`, `check_provenance_integrity` |
 | Corrections | `flag_correction`, `check_corrections`, `investigation_summary` |
-| Output | `create_sigma_rule`, `generate_sigma_from_findings`, `generate_attack_navigator`, `generate_evidence_chain_report`, `generate_audit_report_tool` |
+| Output | `create_sigma_rule`, `generate_sigma_from_findings`, `generate_attack_navigator`, `generate_evidence_chain_report`, `generate_audit_report_tool`, `render_investigation_report` |
+| Enrichment | `lookup_hash`, `enrich_executables` |
 
 ## Constraints
 
