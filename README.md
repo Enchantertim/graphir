@@ -41,7 +41,7 @@ claude
                     │              ▼                            │
                     │   ┌──────────────────────┐               │
                     │   │   graphir MCP Server  │               │
-                    │   │   14 typed tools      │               │
+                    │   │   20 typed tools      │               │
                     │   │                        │               │
                     │   │  Investigation:        │               │
                     │   │   ingest_timeline      │               │
@@ -194,15 +194,19 @@ graphir/
 ├── pyproject.toml
 ├── LICENSE                     # MIT
 ├── src/graphir/
-│   ├── server.py               # MCP server — 14 typed tools
+│   ├── server.py               # MCP server — 20 typed tools
 │   ├── graph.py                # Neo4j schema (8 vertex types, 9 edge types)
-│   ├── batch_ingest.py         # High-performance UNWIND batched ingestion
+│   ├── batch_ingest.py         # High-performance UNWIND batched ingestion (MACB-aware)
 │   ├── ingest.py               # Per-event ingestion (reference implementation)
-│   ├── hunts.py                # Hunt pattern definitions (7 queries)
+│   ├── hunts.py                # Hunt pattern definitions (19 queries)
 │   ├── provenance.py           # Origin tracking, atomic claims, predicate templates
 │   ├── verification.py         # Dual-path verification engine
 │   ├── corrections.py          # FP/hallucination tracking as graph entities
-│   └── investigation_log.py    # Structured JSONL investigation logging
+│   ├── investigation_log.py    # Structured JSONL investigation logging
+│   ├── sigma.py                # Sigma rule generator (typed, not LLM YAML)
+│   ├── navigator.py            # ATT&CK Navigator layer generator
+│   ├── evidence_chain.py       # Evidence provenance chain generator
+│   └── audit_report.py         # Complete audit report (JSON + Markdown)
 ├── docs/
 │   ├── VERIFICATION.md         # Verification architecture (detailed)
 │   ├── ACCURACY.md             # Accuracy report methodology

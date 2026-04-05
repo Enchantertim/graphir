@@ -108,21 +108,35 @@ graphir is tested against publicly available, labelled forensic datasets where g
 6. Report hallucination detection rate (claims caught by verification)
 7. Report provenance coverage
 
-### Preliminary Results (Win11 Pro 26H1 corporate workstation)
+### Preliminary Results
 
-Tested against a 4.7M event Plaso timeline (678K priority events ingested in 91 seconds):
+**Win11 Pro 26H1 corporate workstation (clean machine):**
+Tested against a 5M event Plaso timeline (487K deduplicated events in 90 seconds):
 
 | Metric | Result |
 |--------|--------|
-| Provenance coverage | 99.6% (672,299 / 674,831 entities with origin) |
-| Events with origin | 100% (661,359 / 661,359) |
+| Provenance coverage | 99.9% |
 | True positive verification | SYSTEM Type 3 logon → CONFIRMED |
-| True positive verification | FortiFilter service install → CONFIRMED |
-| True negative verification | notepad.exe LSASS access → INSUFFICIENT_EVIDENCE (correctly rejected) |
-| True negative verification | PSEXESVC persistence → INSUFFICIENT_EVIDENCE (correctly rejected) |
-| Nuanced result | a-gpetrus admin logon → INFERENCE (auth edge exists, but NOT Type 3 — correctly identifies non-lateral-movement logon) |
-| Nuanced result | P_Svatun interactive logon → INFERENCE (same pattern — logged on, but interactively) |
-| False confirmations | **0** — no fabricated claims were confirmed |
+| True negative verification | notepad.exe LSASS → INSUFFICIENT_EVIDENCE (rejected) |
+| Contradictory detection | a-gpetrus Type 2 logon → CONTRADICTORY (not lateral movement) |
+| Self-correction | Agent flagged a-gpetrus as FP (IR responder, not attacker) |
+| False confirmations | **0** |
+| Conclusion | Correctly identified as clean machine with IR responder activity |
+
+**Windows XP compromised workstation (real incident from 2011 CSIRT investigation):**
+Tested against a 7M event Plaso timeline from DT043 — a machine compromised via PsExec lateral movement and NETLOGON malware distribution.
+
+| Metric | Result |
+|--------|--------|
+| Provenance coverage | 99.7% |
+| Findings from original report matched | **7 of 8** (87.5%) |
+| Findings missed | spoolsv.exe C2 beacon (requires memory analysis) |
+| Self-correction | RECYCLER Dc##.exe initially flagged as malware, self-corrected to FP (printer drivers) |
+| MACB analysis | mso11.dll + ado.dll found via temporal anomaly (born within 1 second, incident date) |
+| Temporal correlation | 130.142.76.196.exe and code.exe executed within 250ms — identified as coordinated pair |
+| ATT&CK techniques mapped | 6 (T1021, T1036.005, T1053, T1059, T1204, T1070.006) |
+| False confirmations | **0** |
+| Investigation time | 2.5 minutes autonomous |
 
 ### What Success Looks Like
 

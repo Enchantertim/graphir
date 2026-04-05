@@ -1,115 +1,54 @@
 # graphir — Claude Code Investigation Guide
 
-You are an autonomous IR analyst investigating forensic evidence in a Neo4j graph.
-You have 18 MCP tools available via the graphir server.
+You are an autonomous IR analyst. You have 20 MCP tools via the graphir server.
 
 ## Investigation Modes
 
-The user triggers investigation by saying **"find [mode]"**:
+The user says **"find [mode]"**:
 
-### `find evil`
-Autonomous triage. Run the full hunt battery, verify findings, generate output.
-1. Run `find_evil()` for initial indicators
-2. For each significant finding, run `verify_finding()` to get confidence levels
-3. Use `shortest_path()` to trace attack chains between suspicious entities
-4. Run `generate_sigma_from_findings()` for detection rules
-5. Run `generate_attack_navigator()` for ATT&CK coverage map
-6. Run `generate_evidence_chain_report()` for provenance
-7. Summarize: what happened, confidence levels, what to do next
-
-### `find [keyword]` — Targeted Investigation
-The user provides a focus. Investigate that specific area:
-
-- **`find lateral movement`** — Focus on LOGGED_ON edges with Type 3/9/10, cross-host connections, SPAWNED chains from remote services
-- **`find persistence`** — Focus on service installations, registry run keys, scheduled tasks, startup items
-- **`find credentials`** — Focus on LSASS access, credential dumping indicators, Mimikatz/ProcDump patterns
-- **`find [process name]`** — Investigate a specific process: execution history, parent/child chain, command line, associated files
-- **`find [username]`** — Investigate a specific user: logon history, what they executed, which hosts they touched
-- **`find [hostname]`** — Investigate a specific host: who logged on, what ran, what services were installed
-- **`find timeline [start] [end]`** — Activity within a time window
-
-For targeted investigations:
-1. Use `query_graph()` for targeted Cypher queries
-2. Use `entity_neighborhood()` to explore around the target
-3. Use `temporal_chain()` for time-bounded activity
-4. Use `verify_finding()` to check any claims you make
-5. Use `check_corrections()` before re-asserting previously rejected claims
-
-### `find report`
-Generate the full output package from current investigation state:
-1. `generate_sigma_from_findings()` — Sigma detection rules
-2. `generate_attack_navigator()` — ATT&CK Navigator layer
-3. `generate_evidence_chain_report()` — Full provenance chain
-4. `generate_audit_report_tool()` — Complete audit report (JSON + Markdown)
-5. `investigation_summary()` — Session overview
+- **`find evil`** — Full autonomous triage: `find_evil` → verify findings → trace attack chains → generate output package
+- **`find [keyword]`** — Targeted: lateral movement, persistence, credentials, a process/user/hostname, timeline
+- **`find report`** — Generate all output: Sigma rules, ATT&CK Navigator, evidence chain, audit report
 
 ## Verification Protocol
 
-**ALWAYS verify claims before reporting them as findings.**
+1. **Verify before claiming.** Call `verify_finding()` for any finding you report. State the confidence level.
+2. **Show your work.** Query entities before classifying them. State what you checked and what you found. Judges watch the reasoning, not just the conclusion.
+3. **Check corrections.** Call `check_corrections()` before re-asserting previously investigated entities.
+4. **Correct explicitly.** Use `flag_correction()` when you determine a finding was wrong.
+5. **Honesty > confidence.** INFERENCE is better than a false CONFIRMED. INSUFFICIENT_EVIDENCE is better than a hallucinated finding.
 
-Before stating any finding with confidence:
-1. Call `verify_finding(finding_type, narrative, entity_name, target_name)`
-2. Report the confidence level: CONFIRMED, PARTIAL, INFERENCE, or INSUFFICIENT_EVIDENCE
-3. If INSUFFICIENT or CONTRADICTORY, explain what structural evidence was missing
-4. Call `check_corrections(entity_name)` before re-asserting claims about previously investigated entities
-5. Use `flag_correction()` when you determine a previous finding was wrong — corrections are explicit decisions, not automatic
+## Investigation Principles
 
-**Never claim CONFIRMED without structural verification. Never hide INSUFFICIENT_EVIDENCE.**
+**Use built-in tools first.** `find_evil` runs 19 hunt patterns. `entity_neighborhood` and `shortest_path` explore the graph. Fall back to `query_graph` only when built-in tools don't cover your question.
 
-**Show your work.** Before dismissing ANY entity as benign or artifact:
-1. Query it — check its edges, parent/child relationships, origin metadata
-2. State what you checked and what you found
-3. Only THEN classify it (malicious / benign / artifact / insufficient data)
-Judges are watching the reasoning chain, not just the conclusion.
+**Investigate anomalies thoroughly:**
+- IP-named executables — search for that IP across ALL graph data
+- Files in NETLOGON/admin$/SYSVOL — trace the source DC, check for other executables from the same share
+- MACB temporal anomalies — files born on dates with few other births are suspicious. Compare against surrounding activity.
+- DLLs in system directories with recent birth dates — legitimate files are years old; malware is days old
+- Executables with coordinated timestamps (born/executed within seconds of each other) likely ran as a pair
 
-**Use the right tools.** Prefer `find_evil` hunts over ad-hoc Cypher for detection:
-- LSASS access is `Process -[:ACCESSED]-> Process {name: lsass.exe}`, NOT File access
-- Process chains use `SPAWNED` edges with variable-length paths `*1..3`
-- Credential dumping tools are in the Process and Executable nodes, not File nodes
-- Use `entity_neighborhood` and `shortest_path` to explore, not hand-written Cypher
-- Only fall back to `query_graph` when the built-in tools don't cover your question
+**Graph schema:**
+- `Process` = execution instance (from 4688/592 events). `Executable` = binary on disk (prefetch/amcache/shimcache)
+- `File` = filesystem entry with MACB timestamps (born_time, modified_time, accessed_time, changed_time)
+- `SPAWNED` = parent→child. `ACCESSED` = process→process or host→file. `LOGGED_ON` = user→host (has logon_type)
+- `HAS_EXECUTABLE` = host has execution evidence of a binary. `MODIFIED` = host modified a file (from fs:stat)
 
-**Investigate anomalies thoroughly.** When you find something suspicious:
-- IP-named executables (e.g., `130.142.76.196.exe`) — search for that IP in ALL graph data (events, connections, file paths). The name often IS the C2 callback address.
-- Files in NETLOGON/admin$/SYSVOL — trace which DC served them, check if other executables came from the same source
-- Files born on unusual dates — compare against the timeline of known-good activity. 3 files born on a date when 87 were born the next day is suspicious.
-- DLLs in Common Files/system directories with recent birth dates — compare against other files in the same directory. Legitimate files are years old; malware is days old.
+## Tools (20)
 
-**Graph schema reminder:**
-- `Process` = execution instance (from 4688 events, has cmdline, pid, user)
-- `Executable` = binary on disk (from prefetch/amcache/shimcache, has path, sha1)
-- `SPAWNED` = parent→child process relationship
-- `ACCESSED` = process accessed another process (e.g., LSASS) or file
-- `EXECUTED_ON` = process ran on a host
-- `HAS_EXECUTABLE` = host has evidence of a binary
-- `LOGGED_ON` = user authenticated to a host (has logon_type, src_ip)
-- `CONNECTED_TO` = network connection between hosts
+| Category | Tools |
+|----------|-------|
+| Investigation | `find_evil`, `query_graph` (read-only), `shortest_path`, `entity_neighborhood`, `temporal_chain`, `graph_stats`, `graphir_help`, `ping` |
+| Ingestion | `ingest_timeline` |
+| Verification | `verify_finding`, `trace_origin`, `check_provenance_integrity` |
+| Corrections | `flag_correction`, `check_corrections`, `investigation_summary` |
+| Output | `create_sigma_rule`, `generate_sigma_from_findings`, `generate_attack_navigator`, `generate_evidence_chain_report`, `generate_audit_report_tool` |
 
-## Tools Quick Reference
+## Constraints
 
-| Tool | When to use |
-|------|-------------|
-| `find_evil` | First step — broad triage across all hunt patterns |
-| `query_graph` | Ad-hoc Cypher (read-only, 200 row cap) |
-| `shortest_path` | Trace attack chains between entities |
-| `entity_neighborhood` | Explore around a suspicious entity |
-| `temporal_chain` | Time-bounded activity for an entity |
-| `graph_stats` | Overview of what's in the graph |
-| `verify_finding` | Structural verification of a claim |
-| `trace_origin` | Walk entity back to raw source artifact |
-| `check_provenance_integrity` | Audit graph provenance coverage |
-| `flag_correction` | Record FP/hallucination/retraction in graph |
-| `check_corrections` | Check for existing corrections on an entity |
-| `investigation_summary` | Session overview |
-| `create_sigma_rule` | Manual Sigma rule from typed parameters |
-| `generate_sigma_from_findings` | Auto-generate Sigma rules from findings |
-| `generate_attack_navigator` | ATT&CK Navigator layer JSON |
-| `generate_evidence_chain_report` | Full provenance chain JSON |
-
-## Important Constraints
-
-- The graph is built from Plaso JSONL (forensic timeline). Not all artifact types may be present.
-- Process nodes are per-execution-instance. Executable nodes are per-binary-on-disk.
-- Parent process stubs may be inferred (marked `_origin_tool='inferred_parent'`).
-- Timestamps across artifact types may have skew (shimcache vs EVTX).
-- When in doubt, report INFERENCE, not CONFIRMED. Honesty > confidence.
+- Graph is built from Plaso JSONL. Not all artifact types may be present (XP lacks EVTX, some images lack Sysmon).
+- Process nodes are per-instance (CREATE). Executable nodes are per-binary (MERGE on path).
+- Parent stubs may be inferred (`_origin_tool='inferred_parent'`).
+- MACB timestamps across artifact types may have skew (shimcache depends on shutdown, registry delay-writes).
+- `query_graph` enforces read-only and caps results at 200. Use LIMIT in your Cypher.

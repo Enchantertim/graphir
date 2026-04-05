@@ -52,21 +52,32 @@ An investigation tool that reports "insufficient evidence" is more valuable than
 
 ## Accomplishments we're proud of
 
-**The verification architecture.** Most AI investigation tools re-read their own output to "verify" findings. graphir checks structural relationships in a graph database using predicates that are independent of the LLM's reasoning path. This is categorically different from self-confirmation.
+**Validated against a real compromised machine.** graphir autonomously found 7 of 8 indicators from a real 2011 Philips CSIRT investigation of a compromised Windows XP workstation: PsExec lateral movement, NETLOGON malware distribution from a compromised DC, admin$ payload deployment, scheduled task abuse, and persistence DLLs masquerading as Office/ADO components. The only missed finding (spoolsv.exe C2 beacon) required memory analysis.
 
-**Provenance coverage.** Every entity in the graph is traceable back to the raw forensic artifact that produced it. An auditor can take any finding and walk backwards through the chain: finding → predicate → graph entity → origin tool → source file → line number.
+**MACB-aware filesystem analysis.** Files carry born/modified/accessed/changed timestamps as separate properties. The `recent_executables_by_date` hunt found mso11.dll and ado.dll — two persistence DLLs born within 1 second of each other on the incident date, hiding among thousands of legitimate files in C:\Program Files\Common Files\.
 
-**Honest accuracy reporting.** The system explicitly reports what it cannot prove. INSUFFICIENT_EVIDENCE is not a failure — it's the system working correctly.
+**The verification architecture.** Most AI investigation tools re-read their own output to "verify" findings. graphir checks structural relationships in a graph database using predicates that are independent of the LLM's reasoning path. Three-state detection: ABSENT (no evidence), CONTRADICTORY (evidence disproves the claim), CONFIRMED (evidence supports).
+
+**Self-correction in practice.** On the XP investigation, the agent initially flagged RECYCLER\Dc##.exe files as "malware hiding in recycle bin." After investigating (querying the subdirectory, finding Xerox printer driver DLLs), it self-corrected with a flag_correction — recording why the initial assessment was wrong.
+
+**Provenance coverage.** 99.7% of entities traceable to raw artifacts. An auditor can walk from any finding to the exact source line in the Plaso JSONL.
+
+**Honest accuracy reporting.** The system reports what it cannot prove. All XP findings are INFERENCE (not CONFIRMED) because XP lacks EVTX process chains — and the report explains why.
 
 ## What we learned
 
-Graph databases change the fundamental nature of IR investigation. When relationships are explicit edges rather than implicit correlations an analyst holds in their head, an AI agent can reason structurally about attack paths. "How did the attacker get from the phishing email to the domain controller?" is a single `shortestPath` query, not hours of manual log correlation.
+Graph databases change the fundamental nature of IR investigation. When relationships are explicit edges rather than implicit correlations an analyst holds in their head, an AI agent can reason structurally about attack paths.
 
-The Parallel Sysplex principle — dual independent computation paths that must agree — applies far beyond mainframe transaction processing. Any system where an AI produces findings that humans will act on benefits from structural verification against a source of truth the AI doesn't control.
+MACB timestamps are not just metadata — they ARE the investigation. Two DLLs born within 1 second of each other in a directory where every other file is years old tells a story that no text search can find. The graph makes temporal anomalies visible.
+
+The Parallel Sysplex principle — dual independent computation paths that must agree — applies far beyond mainframe transaction processing. But "independent" must be real independence: the verifier must check conditions the LLM didn't reason about, not just confirm what it already said.
+
+An AI that says "insufficient evidence" is more valuable than one that hallucinates a finding. Honesty under uncertainty is a feature, not a limitation.
 
 ## What's next
 
 - **Multi-host investigations:** Ingest multiple timelines with cross-host entity resolution
-- **Sigma rule generation:** For each confirmed ATT&CK technique, generate a vendor-neutral detection rule
-- **Output package:** PDF reports at three management levels, ATT&CK Navigator layers, evidence chain JSON
-- **Accuracy benchmarking:** Systematic testing against EVTX-ATTACK-SAMPLES and Mordor datasets with precision/recall metrics
+- **Accuracy benchmarking:** Systematic testing against EVTX-ATTACK-SAMPLES and Mordor/SecurityDatasets
+- **Executive summary PDF:** 1-page board-ready report with visual confidence indicators
+- **Three-tier recommendations:** Operational (now), tactical (this week), strategic (this quarter)
+- **Demo video:** 5-minute screencast showing find evil → investigation → self-correction → output package
