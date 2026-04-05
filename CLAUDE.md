@@ -22,6 +22,12 @@ The user says **"find [mode]"**:
 
 **Use built-in tools first.** `find_evil` runs 19 hunt patterns. `entity_neighborhood` and `shortest_path` explore the graph. Fall back to `query_graph` only when built-in tools don't cover your question.
 
+**Multi-host investigations:** When the graph has multiple hosts:
+- Trace suspicious users ACROSS hosts — which hosts did they log into, in what order, with what logon types?
+- Use `temporal_chain` to build the cross-host attack timeline
+- The attack narrative should show the hop pattern: "workstation → DC → other workstations"
+- This is the graph's killer feature — no other tool can trace lateral movement paths this way
+
 **Investigate anomalies thoroughly:**
 - IP-named executables — search for that IP across ALL graph data
 - Files in NETLOGON/admin$/SYSVOL — trace the source DC, check for other executables from the same share
