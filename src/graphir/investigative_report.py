@@ -261,11 +261,28 @@ def _section_4_management_summary(ctx) -> list[str]:
     malware = [e for e in ctx["enrichment"] if e.get("status") == "found" and e.get("detections")]
     corrections = ctx["corrections"]
 
+    # Check for strong indicators from agent findings (PsExec, RATs, AV bypass, etc.)
+    agent_findings_text = " ".join(
+        e.get("detail", "") for e in ctx["finding_details"]
+    ).lower()
+    has_strong_indicators = any(term in agent_findings_text for term in [
+        "psexec", "lateral movement", "remote shell", "backdoor", "rat",
+        "mimikatz", "credential dump", "av bypass", "avbypass",
+        "masquerad", "timestomp", "recycle bin",
+    ])
+
     if malware:
         verdict = "COMPROMISE CONFIRMED"
         lines.append(f"**Verdict: {verdict}**")
         lines.append("")
         lines.append(f"{len(malware)} executable(s) confirmed as malicious via VirusTotal threat intelligence. ")
+    elif has_strong_indicators:
+        verdict = "COMPROMISE INDICATED — HIGH CONFIDENCE"
+        lines.append(f"**Verdict: {verdict}**")
+        lines.append("")
+        lines.append("Multiple strong indicators of compromise identified through artifact analysis. "
+                     "Structural verification is limited by available evidence types (no EVTX process chains), "
+                     "but the pattern of findings is consistent with active adversary operations. ")
     elif finding_count > 5:
         verdict = "SUSPICIOUS — FURTHER INVESTIGATION REQUIRED"
         lines.append(f"**Verdict: {verdict}**")
@@ -395,7 +412,7 @@ def _section_6_findings(ctx) -> list[str]:
                for f in ctx["active_findings"]):
             continue
         num += 1
-        lines.append(f"### 6.{num} {detail[:80]}")
+        lines.append(f"### 6.{num} {detail}")
         lines.append("")
         lines.append(f"- **Confidence:** {confidence}")
         lines.append(f"- **Source:** Agent investigation (structural verification)")
