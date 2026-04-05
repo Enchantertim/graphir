@@ -140,6 +140,51 @@ def ingest_timeline(path: str, default_hostname: str = "unknown",
 
 
 @mcp.tool()
+def ingest_multi(directory: str, priority_only: bool = True) -> str:
+    """Ingest ALL Plaso JSON-L files from a directory into the graph.
+
+    For multi-host investigations: each .njson/.jsonl file is ingested
+    separately with its own hostname auto-discovery. Cross-host entity
+    resolution happens naturally — the same User SID or Host hostname
+    from different timelines will MERGE into the same graph node.
+
+    Args:
+        directory: Path to a directory containing .njson/.jsonl files.
+        priority_only: If True (default), only ingest forensically-important types.
+    """
+    try:
+        from pathlib import Path
+        dir_path = Path(directory)
+        if not dir_path.is_dir():
+            return json.dumps({"error": f"Not a directory: {directory}"})
+
+        files = sorted(list(dir_path.glob("*.njson")) + list(dir_path.glob("*.jsonl")))
+        if not files:
+            return json.dumps({"error": f"No .njson/.jsonl files in {directory}"})
+
+        init_schema(run_cypher)
+        all_stats = []
+        for f in files:
+            # Use filename (without extension) as default hostname fallback
+            default_host = f.stem.upper()
+            ingester = BatchIngester(run_cypher, default_hostname=default_host)
+            stats = ingester.ingest_file(str(f), priority_only=priority_only)
+            stats["file"] = f.name
+            stats["discovered_hostname"] = ingester._discovered_hostname or default_host
+            all_stats.append(stats)
+
+        total = {
+            "files_ingested": len(all_stats),
+            "total_events": sum(s.get("events_processed", 0) for s in all_stats),
+            "total_errors": sum(s.get("errors", 0) for s in all_stats),
+            "per_file": all_stats,
+        }
+        return json.dumps(total, default=str, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
 def query_graph(cypher: str, max_results: int = 200) -> str:
     """Execute a READ-ONLY Cypher query against the investigation graph.
 
