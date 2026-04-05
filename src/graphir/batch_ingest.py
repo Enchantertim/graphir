@@ -21,13 +21,15 @@ from graphir.provenance import make_origin
 logger = logging.getLogger(__name__)
 
 # Event IDs we want to route specially
-LOGON_EIDS = {4624, 4625, 4634, 4648}
-PROCESS_EIDS = {4688, 4689}
-SERVICE_EIDS = {7045, 4697}
+# Vista+/EVTX event IDs AND XP/EVT equivalents
+LOGON_EIDS = {4624, 4625, 4634, 4648, 528, 529, 538, 552}  # XP: 528=logon, 529=failed, 538=logoff
+PROCESS_EIDS = {4688, 4689, 592, 593}  # XP: 592=process created, 593=process exited
+SERVICE_EIDS = {7045, 4697, 7036}  # 7036=service started/stopped (common on XP)
 
 # Plaso data types we ingest (priority set)
 PRIORITY_DATA_TYPES = {
     "windows:evtx:record",
+    "windows:evt:record",
     "windows:prefetch:execution",
     "windows:registry:amcache",
     "windows:registry:appcompatcache",
@@ -211,7 +213,7 @@ class BatchIngester:
             "_origin_source_line": line_num,
         }
 
-        if dt == "windows:evtx:record":
+        if dt in ("windows:evtx:record", "windows:evt:record"):
             eid = event.get("event_identifier")
             strings = event.get("strings", []) or []
             xml = event.get("xml_string", "")
