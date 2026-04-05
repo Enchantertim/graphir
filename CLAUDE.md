@@ -69,6 +69,12 @@ Judges are watching the reasoning chain, not just the conclusion.
 - Use `entity_neighborhood` and `shortest_path` to explore, not hand-written Cypher
 - Only fall back to `query_graph` when the built-in tools don't cover your question
 
+**Investigate anomalies thoroughly.** When you find something suspicious:
+- IP-named executables (e.g., `130.142.76.196.exe`) — search for that IP in ALL graph data (events, connections, file paths). The name often IS the C2 callback address.
+- Files in NETLOGON/admin$/SYSVOL — trace which DC served them, check if other executables came from the same source
+- Files born on unusual dates — compare against the timeline of known-good activity. 3 files born on a date when 87 were born the next day is suspicious.
+- DLLs in Common Files/system directories with recent birth dates — compare against other files in the same directory. Legitimate files are years old; malware is days old.
+
 **Graph schema reminder:**
 - `Process` = execution instance (from 4688 events, has cmdline, pid, user)
 - `Executable` = binary on disk (from prefetch/amcache/shimcache, has path, sha1)
