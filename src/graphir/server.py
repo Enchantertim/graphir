@@ -18,6 +18,7 @@ from graphir.navigator import generate_layer_from_findings, write_navigator_laye
 from graphir.evidence_chain import generate_evidence_chain, write_evidence_chain
 from graphir.enrichment import vt_hash_lookup, enrich_executables_from_graph, enrich_files_by_hash
 from graphir.report_render import render_report
+from graphir.investigative_report import generate_investigative_report
 from graphir.audit_report import generate_audit_report
 from graphir.investigation_log import InvestigationLog
 
@@ -923,6 +924,53 @@ def generate_audit_report_tool() -> str:
             "generate_audit_report", {},
             f"Audit report: {result['findings_count']} findings, "
             f"{result['provenance_coverage']} provenance",
+        )
+
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# --- Investigative Report ---
+
+
+@mcp.tool()
+def generate_investigation_report(formats: str = "md,pdf,docx") -> str:
+    """Generate a full investigative report — the deliverable a senior IR analyst would produce.
+
+    Structure: Management Summary → Scope → Findings (with evidence tables,
+    ATT&CK mapping, confidence levels) → Recommendations (operational/tactical/
+    strategic) → Next Steps → Closing Statement.
+
+    Automatically rendered to Markdown (source of truth) + PDF (board/legal)
+    + DOCX (analyst copy-paste).
+
+    This is the "analytical reasoning" deliverable required by the hackathon rules.
+    """
+    try:
+        # Get current findings
+        findings_json = find_evil(summarize=True)
+        findings = json.loads(findings_json)
+        if isinstance(findings, dict) and findings.get("status") == "clean":
+            findings = []
+
+        # Generate markdown report
+        result = generate_investigative_report(
+            run_cypher, _investigation_log, findings
+        )
+
+        # Render to requested formats
+        md_path = result.get("markdown_path", "")
+        if md_path:
+            render_result = render_report(md_path, output_dir="investigation-output",
+                                          formats=[f.strip() for f in formats.split(",")])
+            result["rendered"] = render_result.get("rendered", {})
+            result["render_errors"] = render_result.get("errors", [])
+
+        _investigation_log.log_tool_call(
+            "generate_investigation_report",
+            {"formats": formats},
+            f"Report: {result['findings_count']} findings, rendered to {list(result.get('rendered', {}).keys())}",
         )
 
         return json.dumps(result, indent=2)

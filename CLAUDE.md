@@ -8,7 +8,7 @@ The user says **"find [mode]"**:
 
 - **`find evil`** — Full autonomous triage: `find_evil` → verify findings → trace attack chains → generate output package
 - **`find [keyword]`** — Targeted: lateral movement, persistence, credentials, a process/user/hostname, timeline
-- **`find report`** — Generate all output: Sigma rules, ATT&CK Navigator, evidence chain, audit report (MD + PDF + DOCX)
+- **`find report`** — Generate all output: Sigma rules, ATT&CK Navigator, evidence chain, investigative report (MD + PDF + DOCX), audit report
 
 ## Verification Protocol
 
