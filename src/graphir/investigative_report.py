@@ -371,7 +371,8 @@ def _section_6_findings(ctx) -> list[str]:
         lines.append("| Executable | Family | Detections | Path |")
         lines.append("|------------|--------|------------|------|")
         for m in malware:
-            lines.append(f"| {m.get('executable', '?')} | {m.get('family', '?')} | {m.get('detections', '?')} | {str(m.get('path', ''))[:50]} |")
+            path = _format_cell("path", m.get("path", ""))
+            lines.append(f"| {m.get('executable', '?')} | {m.get('family', '?')} | {m.get('detections', '?')} | {path} |")
         lines.append("")
 
     # Hunt findings
@@ -396,11 +397,11 @@ def _section_6_findings(ctx) -> list[str]:
                 lines.append("| " + " | ".join(keys) + " |")
                 lines.append("| " + " | ".join(["---"] * len(keys)) + " |")
                 for r in results[:10]:
-                    vals = [str(r.get(k, ""))[:50] for k in keys]
+                    vals = [_format_cell(k, r.get(k, "")) for k in keys]
                     lines.append("| " + " | ".join(vals) + " |")
             else:
                 for r in results[:10]:
-                    parts = [f"**{k}:** {str(v)[:50]}" for k, v in r.items() if v]
+                    parts = [f"**{k}:** {_format_cell(k, v)}" for k, v in r.items() if v]
                     lines.append(f"- {' | '.join(parts[:4])}")
             lines.append("")
 
@@ -495,10 +496,19 @@ def _section_8_recommendations(ctx) -> list[str]:
 
     lines.append("### 8.3 Strategic — Long-term (This Quarter)")
     lines.append("")
-    lines.append("- Implement Credential Guard on Windows 10+ endpoints")
-    lines.append("- Deploy LAPS domain-wide")
+    # Check if hosts include modern Windows (Win10+) or legacy (XP/Win7)
+    hosts_str = " ".join(ctx["hosts"]).lower()
+    has_legacy = any(x in hosts_str for x in ["xp", "win7", "2008", "2003"])
+    has_modern = any(x in hosts_str for x in ["win10", "win11", "2016", "2019", "2022"])
+
+    if has_legacy:
+        lines.append("- **PRIORITY:** Migrate legacy systems (Windows XP/7/2008) to supported operating systems")
+        lines.append("- Implement network segmentation to isolate legacy systems that cannot be migrated")
+    if has_modern or not has_legacy:
+        lines.append("- Implement Credential Guard on Windows 10+ endpoints")
+    lines.append("- Deploy LAPS (Local Administrator Password Solution) domain-wide")
     lines.append("- Implement network segmentation (workstation/server VLANs)")
-    lines.append("- Deploy Sysmon with tuned configuration")
+    lines.append("- Deploy Sysmon with tuned configuration for enhanced endpoint telemetry")
     lines.append("- Conduct tabletop exercise based on identified attack patterns")
     lines.append("")
     return lines
@@ -640,3 +650,86 @@ def _section_10_appendix(ctx, run_cypher) -> list[str]:
     lines.append("")
 
     return lines
+
+
+# ---------------------------------------------------------------------------
+# Cell formatting
+# ---------------------------------------------------------------------------
+
+def _format_cell(key: str, value) -> str:
+    """Format a table cell value for readability in markdown.
+
+    Wraps long values using <br> for markdown table compatibility.
+    Extracts filenames from paths, cleans timestamps, formats lists.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+
+    # File/path fields: extract readable portion
+    if key in ("file", "path", "name", "executable", "dir_path") and "\\" in s:
+        # Remove NTFS: prefix
+        s = s.replace("NTFS:", "").replace("\\\\??\\\\", "")
+        # If still long, keep last 3 components
+        parts = s.split("\\")
+        parts = [p for p in parts if p]
+        if len(parts) > 4:
+            s = "...\\\\" + "\\\\".join(parts[-3:])
+
+    # Timestamp fields: strip nanoseconds and timezone
+    if any(ts_key in key for ts_key in ["born", "modified", "accessed", "seen", "earliest", "latest"]):
+        if "T" in s and "." in s:
+            s = s.split(".")[0]
+        s = s.replace("+00:00", "")
+
+    # List fields: format nicely
+    if isinstance(value, list):
+        if not value:
+            return ""
+        if isinstance(value[0], dict):
+            # List of dicts (e.g., recently_dropped) — extract names
+            names = []
+            for item in value[:3]:
+                if isinstance(item, dict):
+                    n = item.get("name", item.get("born", str(item)))
+                    if isinstance(n, str) and "\\" in n:
+                        n = n.split("\\")[-1]
+                    names.append(str(n)[:40])
+            s = ", ".join(names)
+            if len(value) > 3:
+                s += f" +{len(value)-3} more"
+        elif isinstance(value[0], str):
+            # List of strings — extract filenames
+            items = []
+            for v in value[:3]:
+                v_str = str(v)
+                if "\\" in v_str:
+                    v_str = v_str.split("\\")[-1]
+                items.append(v_str[:40])
+            s = ", ".join(items)
+            if len(value) > 3:
+                s += f" +{len(value)-3} more"
+        else:
+            s = str(value)
+
+    # Duration/window fields
+    if key in ("delta", "window") and isinstance(value, list):
+        if len(value) >= 3:
+            s = f"{value[0]}m {value[1]}d {value[2]}s"
+
+    # Wrap long values with <br> for markdown tables
+    if len(s) > 80:
+        # Break at sensible points
+        wrapped = []
+        while len(s) > 80:
+            break_at = s.rfind("\\", 0, 80)
+            if break_at < 20:
+                break_at = s.rfind(",", 0, 80)
+            if break_at < 20:
+                break_at = 80
+            wrapped.append(s[:break_at])
+            s = s[break_at:]
+        wrapped.append(s)
+        s = "<br>".join(wrapped)
+
+    return s
