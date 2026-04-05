@@ -138,6 +138,25 @@ Tested against a 7M event Plaso timeline from DT043 — a machine compromised vi
 | False confirmations | **0** |
 | Investigation time | 2.5 minutes autonomous |
 
+**Multi-host SANS 508 (4 machines, same incident — SANS starter dataset):**
+Tested against the official hackathon starter data (SRL-2015): Domain Controller +
+3 workstations (Win7×2 + XP). 1.88M events across 4 hosts ingested in 180 seconds.
+
+| Metric | Result |
+|--------|--------|
+| Provenance coverage | 100% |
+| Attacker account identified | vibranium (CONFIRMED lateral movement via logon type analysis) |
+| Attack tools found | PyInstaller RAT (a.exe), RemotePIShell, avbypass.exe, spinlock.exe, PsExec |
+| Cross-host deployment | a.exe + spinlock.exe deployed to both Win7 and XP hosts |
+| Timestomping detected | svchost.exe in Recycle Bin (born 2012, modified backdated to 2008) |
+| Compromised accounts | 4 (tdungan, rsydow, vibranium, SRL-Helpdesk) |
+| ATT&CK techniques mapped | 11+ |
+| Sigma rules generated | 8 (3 auto + 5 custom for specific attack tools) |
+| Self-corrections | 1 (wmpns.dll correctly identified as legitimate WMP DLL) |
+| False confirmations | **0** |
+| Investigation time | 5 minutes 38 seconds autonomous |
+| Output package | Investigative report (MD+DOCX), audit report, evidence chain, ATT&CK Navigator, 8 Sigma rules |
+
 ### What Success Looks Like
 
 A successful accuracy report shows:

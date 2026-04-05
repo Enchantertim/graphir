@@ -221,11 +221,11 @@ graphir/
 ├── pyproject.toml
 ├── LICENSE                     # MIT
 ├── src/graphir/
-│   ├── server.py               # MCP server — 20 typed tools
+│   ├── server.py               # MCP server — 26 typed tools
 │   ├── graph.py                # Neo4j schema (8 vertex types, 9 edge types)
 │   ├── batch_ingest.py         # High-performance UNWIND batched ingestion (MACB-aware)
 │   ├── ingest.py               # Per-event ingestion (reference implementation)
-│   ├── hunts.py                # Hunt pattern definitions (19 queries)
+│   ├── hunts.py                # Hunt pattern definitions (20 queries)
 │   ├── provenance.py           # Origin tracking, atomic claims, predicate templates
 │   ├── verification.py         # Dual-path verification engine
 │   ├── corrections.py          # FP/hallucination tracking as graph entities
@@ -233,7 +233,10 @@ graphir/
 │   ├── sigma.py                # Sigma rule generator (typed, not LLM YAML)
 │   ├── navigator.py            # ATT&CK Navigator layer generator
 │   ├── evidence_chain.py       # Evidence provenance chain generator
-│   └── audit_report.py         # Complete audit report (JSON + Markdown)
+│   ├── audit_report.py         # Technical audit report (JSON + Markdown)
+│   ├── investigative_report.py # Full 10-section IR report (MD + PDF + DOCX)
+│   ├── report_render.py        # Markdown → PDF / DOCX / HTML renderer
+│   └── enrichment.py           # VT hash lookup + ThreatIntel graph enrichment
 ├── docs/
 │   ├── VERIFICATION.md         # Verification architecture (detailed)
 │   ├── ACCURACY.md             # Accuracy report methodology
