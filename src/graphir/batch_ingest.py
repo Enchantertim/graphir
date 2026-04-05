@@ -41,6 +41,26 @@ PRIORITY_DATA_TYPES = {
     "windows:registry:key_value",
     "windows:lnk:link",
     "fs:ntfs:usn_change",
+    "fs:stat",  # Selective — only suspicious paths, with MACB timestamp context
+}
+
+# Paths that make fs:stat entries forensically interesting
+# (most fs:stat is noise — millions of standard Windows files)
+_SUSPICIOUS_FS_PATHS = {
+    "\\temp\\", "\\tmp\\", "\\appdata\\", "\\debug\\",
+    "\\recycle", "\\admin$\\", "\\netlogon\\",
+    "\\common files\\", "\\startup\\", "\\start menu\\",
+    "\\tasks\\", "\\prefetch\\", "\\recent\\",
+    ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".js",
+    ".scr", ".pif", ".com", ".hta",
+}
+
+# MACB timestamp descriptions — forensically meaningful
+MACB_MAP = {
+    "Creation Time": "born",           # B — file was created
+    "Content Modification Time": "modified",  # M — content changed
+    "Last Access Time": "accessed",     # A — file was read
+    "Metadata Modification Time": "changed",  # C — MFT entry changed
 }
 
 
@@ -383,6 +403,32 @@ class BatchIngester:
                     **origin,
                 })
 
+        elif dt == "fs:stat":
+            # Selective filesystem ingestion — only suspicious paths, with MACB context
+            display_name = event.get("display_name", "") or event.get("filename", "")
+            path_lower = display_name.lower()
+
+            # Skip if not a forensically interesting path
+            if not any(pattern in path_lower for pattern in _SUSPICIOUS_FS_PATHS):
+                self.stats["skipped"] += 1
+                self.stats["events_processed"] -= 1
+                return
+
+            file_name = Path(display_name).name if display_name else ""
+            ts_desc = event.get("timestamp_desc", "")
+            macb = MACB_MAP.get(ts_desc, ts_desc.lower().replace(" ", "_") if ts_desc else "unknown")
+
+            self._batches["fs_stat"].append({
+                "hostname": hostname,
+                "path": display_name,
+                "file_name": file_name,
+                "ts": ts,
+                "macb": macb,
+                "ts_desc": ts_desc,
+                "inode": str(event.get("inode", "")),
+                **origin,
+            })
+
         else:
             # Generic: registry key_value, usn_change, etc. — just count, skip graph for now
             self.stats["skipped"] += 1
@@ -612,5 +658,30 @@ BATCH_QUERIES = {
         ON CREATE SET f.name = evt.file_name, f.timestamp = datetime(evt.ts)
         MERGE (h)-[:ACCESSED {timestamp: datetime(evt.ts), source: 'lnk',
                                lnk_path: evt.lnk_path}]->(f)
+    """,
+
+    # fs:stat — file system entries with MACB timestamps
+    # Only forensically interesting paths are ingested (filtered in accumulator)
+    # MACB stored as separate properties: born_time, modified_time, accessed_time, changed_time
+    "fs_stat": """
+        UNWIND $batch AS evt
+        MERGE (h:Host {hostname: evt.hostname})
+        MERGE (f:File {path: evt.path})
+        ON CREATE SET f.name = evt.file_name,
+                      f._origin_tool = evt._origin_tool,
+                      f._origin_artifact = evt._origin_artifact,
+                      f._origin_parser = evt._origin_parser,
+                      f._origin_data_type = evt._origin_data_type,
+                      f._origin_source_line = evt._origin_source_line
+        FOREACH (_ IN CASE WHEN evt.macb = 'born' THEN [1] ELSE [] END |
+            SET f.born_time = datetime(evt.ts))
+        FOREACH (_ IN CASE WHEN evt.macb = 'modified' THEN [1] ELSE [] END |
+            SET f.modified_time = datetime(evt.ts))
+        FOREACH (_ IN CASE WHEN evt.macb = 'accessed' THEN [1] ELSE [] END |
+            SET f.accessed_time = datetime(evt.ts))
+        FOREACH (_ IN CASE WHEN evt.macb = 'changed' THEN [1] ELSE [] END |
+            SET f.changed_time = datetime(evt.ts))
+        MERGE (h)-[:MODIFIED {timestamp: datetime(evt.ts), macb: evt.macb,
+                               source: 'filesystem'}]->(f)
     """,
 }

@@ -415,4 +415,77 @@ HUNT_QUERIES = {
         "tactic": "Execution",
         "technique": "T1059",
     },
+    "timestomping_indicators": {
+        "description": "Files where MACB timestamps are inconsistent — potential timestomping or anti-forensics",
+        "query": """
+            MATCH (f:File)
+            WHERE f.born_time IS NOT NULL AND f.modified_time IS NOT NULL
+              AND f.modified_time < f.born_time
+            RETURN f.name AS file, f.path AS path,
+                   f.born_time AS born, f.modified_time AS modified,
+                   duration.between(f.modified_time, f.born_time) AS delta
+            ORDER BY f.born_time
+            LIMIT 100
+        """,
+        "summarize_query": """
+            MATCH (f:File)
+            WHERE f.born_time IS NOT NULL AND f.modified_time IS NOT NULL
+              AND f.modified_time < f.born_time
+            RETURN f.name AS file, f.path AS path,
+                   f.born_time AS born, f.modified_time AS modified,
+                   duration.between(f.modified_time, f.born_time) AS delta
+            ORDER BY f.born_time
+            LIMIT 20
+        """,
+        "tactic": "Defense Evasion",
+        "technique": "T1070.006",
+    },
+    "suspicious_filesystem_artifacts": {
+        "description": "Executable/DLL/script files in suspicious filesystem locations (temp, debug, admin$, NETLOGON, Common Files)",
+        "query": """
+            MATCH (h:Host)-[:MODIFIED]->(f:File)
+            WHERE f.name IS NOT NULL
+              AND (toLower(f.path) CONTAINS '\\temp\\' OR toLower(f.path) CONTAINS '\\debug\\'
+                   OR toLower(f.path) CONTAINS '\\admin$\\' OR toLower(f.path) CONTAINS '\\netlogon\\'
+                   OR toLower(f.path) CONTAINS '\\common files\\' OR toLower(f.path) CONTAINS '\\startup\\'
+                   OR toLower(f.path) CONTAINS '\\tasks\\' OR toLower(f.path) CONTAINS '\\recycle')
+              AND (toLower(f.name) ENDS WITH '.exe' OR toLower(f.name) ENDS WITH '.dll'
+                   OR toLower(f.name) ENDS WITH '.bat' OR toLower(f.name) ENDS WITH '.cmd'
+                   OR toLower(f.name) ENDS WITH '.ps1' OR toLower(f.name) ENDS WITH '.vbs')
+            RETURN f.name AS file, f.path AS path, h.hostname AS host,
+                   f.born_time AS born, f.modified_time AS modified,
+                   f.accessed_time AS accessed
+            ORDER BY f.born_time
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (h:Host)-[:MODIFIED]->(f:File)
+            WHERE f.name IS NOT NULL
+              AND (toLower(f.path) CONTAINS '\\\\temp\\\\' OR toLower(f.path) CONTAINS '\\\\debug\\\\'
+                   OR toLower(f.path) CONTAINS '\\\\admin$\\\\' OR toLower(f.path) CONTAINS '\\\\netlogon\\\\'
+                   OR toLower(f.path) CONTAINS '\\\\common files\\\\' OR toLower(f.path) CONTAINS '\\\\startup\\\\'
+                   OR toLower(f.path) CONTAINS '\\\\tasks\\\\' OR toLower(f.path) CONTAINS '\\\\recycle')
+              AND (toLower(f.name) ENDS WITH '.exe' OR toLower(f.name) ENDS WITH '.dll'
+                   OR toLower(f.name) ENDS WITH '.bat' OR toLower(f.name) ENDS WITH '.cmd'
+                   OR toLower(f.name) ENDS WITH '.ps1' OR toLower(f.name) ENDS WITH '.vbs')
+            WITH CASE
+                   WHEN toLower(f.path) CONTAINS '\\\\debug\\\\' THEN 'debug_dir'
+                   WHEN toLower(f.path) CONTAINS '\\\\admin$\\\\' THEN 'admin_share'
+                   WHEN toLower(f.path) CONTAINS '\\\\netlogon\\\\' THEN 'netlogon_share'
+                   WHEN toLower(f.path) CONTAINS '\\\\common files\\\\' THEN 'common_files'
+                   WHEN toLower(f.path) CONTAINS '\\\\temp\\\\' THEN 'temp_dir'
+                   WHEN toLower(f.path) CONTAINS '\\\\startup\\\\' THEN 'startup'
+                   WHEN toLower(f.path) CONTAINS '\\\\tasks\\\\' THEN 'scheduled_tasks'
+                   ELSE 'other'
+                 END AS location,
+                 count(*) AS file_count,
+                 collect(DISTINCT f.name)[0..5] AS samples,
+                 h.hostname AS host
+            RETURN location, file_count, samples, host
+            ORDER BY location
+            LIMIT 20
+        """,
+        "tactic": "Persistence",
+        "technique": "T1036",
+    },
 }
