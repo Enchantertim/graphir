@@ -128,7 +128,9 @@ def generate_sigma_rule(
         tags.append(f"attack.{technique_id.lower()}")
 
     # Build the rule
-    rule_id = str(uuid.uuid4())
+    # Deterministic UUID — same rule logic produces same ID across regenerations.
+    # Prevents SIEM rule duplication when find_report is re-run.
+    rule_id = str(uuid.uuid5(uuid.NAMESPACE_URL, title + json.dumps(detection, sort_keys=True)))
     now = datetime.now(timezone.utc).strftime("%Y/%m/%d")
 
     rule = {
@@ -402,7 +404,7 @@ def generate_rules_from_findings(run_cypher, findings: list[dict]) -> list[dict]
                 logsource_type="process_creation",
                 detection={
                     "selection_enc": {
-                        "CommandLine|contains": ["-enc ", "-encodedcommand"],
+                        "CommandLine|contains": ["-e ", "-en ", "-enc ", "-enco ", "-encodedcommand"],
                     },
                     "selection_obf": {
                         "CommandLine|contains": ["-w hidden", "-nop", "frombase64"],

@@ -156,7 +156,9 @@ HUNT_QUERIES = {
         "description": "Encoded/obfuscated command line arguments",
         "query": """
             MATCH (p:Process)
-            WHERE toLower(p.cmdline) CONTAINS '-enc ' OR toLower(p.cmdline) CONTAINS '-encodedcommand'
+            WHERE toLower(p.cmdline) CONTAINS '-e ' OR toLower(p.cmdline) CONTAINS '-en '
+               OR toLower(p.cmdline) CONTAINS '-enc ' OR toLower(p.cmdline) CONTAINS '-enco '
+               OR toLower(p.cmdline) CONTAINS '-encodedcommand'
                OR toLower(p.cmdline) CONTAINS 'frombase64' OR toLower(p.cmdline) CONTAINS 'hidden'
                OR toLower(p.cmdline) CONTAINS '-w hidden' OR toLower(p.cmdline) CONTAINS '-nop'
             RETURN p.name AS process, p.cmdline AS cmdline,
@@ -166,7 +168,9 @@ HUNT_QUERIES = {
         """,
         "summarize_query": """
             MATCH (p:Process)
-            WHERE toLower(p.cmdline) CONTAINS '-enc ' OR toLower(p.cmdline) CONTAINS '-encodedcommand'
+            WHERE toLower(p.cmdline) CONTAINS '-e ' OR toLower(p.cmdline) CONTAINS '-en '
+               OR toLower(p.cmdline) CONTAINS '-enc ' OR toLower(p.cmdline) CONTAINS '-enco '
+               OR toLower(p.cmdline) CONTAINS '-encodedcommand'
                OR toLower(p.cmdline) CONTAINS 'frombase64' OR toLower(p.cmdline) CONTAINS 'hidden'
                OR toLower(p.cmdline) CONTAINS '-w hidden' OR toLower(p.cmdline) CONTAINS '-nop'
             RETURN p.name AS process, p.cmdline AS cmdline,
