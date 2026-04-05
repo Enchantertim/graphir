@@ -16,6 +16,7 @@ from graphir.hunts import HUNT_QUERIES
 from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, write_sigma_rules
 from graphir.navigator import generate_layer_from_findings, write_navigator_layer
 from graphir.evidence_chain import generate_evidence_chain, write_evidence_chain
+from graphir.enrichment import vt_hash_lookup, enrich_executables_from_graph, enrich_files_by_hash
 from graphir.audit_report import generate_audit_report
 from graphir.investigation_log import InvestigationLog
 
@@ -924,6 +925,54 @@ def generate_audit_report_tool() -> str:
         )
 
         return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# --- Threat Intelligence Enrichment ---
+
+
+@mcp.tool()
+def lookup_hash(file_hash: str) -> str:
+    """Look up a file hash on VirusTotal. Hash-only — NEVER uploads files.
+
+    Zero customer data exfiltration. "Unknown hash" is itself a meaningful
+    signal (novel malware vs known family).
+
+    Requires VT_API_KEY environment variable.
+
+    Args:
+        file_hash: SHA256, SHA1, or MD5 hash string.
+    """
+    result = vt_hash_lookup(file_hash)
+    _investigation_log.log_tool_call(
+        "lookup_hash", {"hash": file_hash},
+        f"VT: {result.get('status')} — {result.get('detection_rate', 'N/A')}",
+    )
+    return json.dumps(result, default=str, indent=2)
+
+
+@mcp.tool()
+def enrich_executables(max_lookups: int = 20) -> str:
+    """Batch-enrich Executable nodes with VirusTotal threat intelligence.
+
+    Queries VT for each executable that has a hash but hasn't been enriched yet.
+    Results written back to graph as ThreatIntel nodes linked via ENRICHED_BY edges.
+    Skips known Windows/ProgramFiles paths.
+
+    Rate-limited to respect VT free tier (4 req/min). Set VT_API_KEY env var.
+
+    Args:
+        max_lookups: Maximum VT API calls (default 20, free tier allows 500/day).
+    """
+    try:
+        result = enrich_executables_from_graph(run_cypher, max_lookups=max_lookups)
+        _investigation_log.log_tool_call(
+            "enrich_executables", {"max_lookups": max_lookups},
+            f"Enriched: {result['found']} found, {result['malicious']} malicious, "
+            f"{result['not_found']} unknown to VT",
+        )
+        return json.dumps(result, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
 

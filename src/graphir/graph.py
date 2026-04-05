@@ -29,6 +29,7 @@ VERTEX_TYPES = {
     "Connection": ["src_ip", "src_port", "dst_ip", "dst_port", "protocol", "timestamp"],
     "Event": ["event_id", "source", "channel", "timestamp", "message", "data"],
     "Correction": ["correction_id", "type", "reason", "original_claim", "corrected_by", "timestamp"],
+    "ThreatIntel": ["source", "family", "detections", "total_engines", "detection_rate", "sha256", "first_seen_vt"],
 }
 
 EDGE_TYPES = {
@@ -41,6 +42,7 @@ EDGE_TYPES = {
     "HAS_EXECUTABLE": "Host has evidence of an Executable (prefetch/amcache/shimcache)",
     "ON_HOST": "Event occurred on a Host",
     "CORRECTS": "Correction applies to an entity",
+    "ENRICHED_BY": "Executable enriched with threat intelligence (VT, capa, yara)",
 }
 
 

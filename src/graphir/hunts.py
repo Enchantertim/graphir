@@ -585,4 +585,29 @@ HUNT_QUERIES = {
         "tactic": "Defense Evasion",
         "technique": "T1036.005",
     },
+    "known_malware": {
+        "description": "Executables with VirusTotal detections — confirmed malware via threat intelligence",
+        "query": """
+            MATCH (x:Executable)-[:ENRICHED_BY]->(ti:ThreatIntel)
+            WHERE ti.detections > 0
+            RETURN x.name AS executable, x.path AS path, x.sha1 AS sha1,
+                   ti.family AS family, ti.detection_rate AS detections,
+                   ti.first_seen_vt AS first_seen
+            ORDER BY ti.detections DESC
+            LIMIT 50
+        """,
+        "summarize_query": """
+            MATCH (x:Executable)-[:ENRICHED_BY]->(ti:ThreatIntel)
+            WHERE ti.detections > 0
+            OPTIONAL MATCH (h:Host)-[:HAS_EXECUTABLE]->(x)
+            RETURN x.name AS executable, ti.family AS family,
+                   ti.detection_rate AS detections,
+                   collect(DISTINCT h.hostname) AS hosts,
+                   ti.first_seen_vt AS first_seen
+            ORDER BY ti.detections DESC
+            LIMIT 20
+        """,
+        "tactic": "Execution",
+        "technique": "T1204",
+    },
 }
