@@ -488,4 +488,97 @@ HUNT_QUERIES = {
         "tactic": "Persistence",
         "technique": "T1036",
     },
+    "recent_executables_by_date": {
+        "description": "Executables/DLLs born on specific dates, grouped by day — reveals malware deployment clusters",
+        "query": """
+            MATCH (f:File)
+            WHERE f.born_time IS NOT NULL
+              AND (toLower(f.name) ENDS WITH '.exe' OR toLower(f.name) ENDS WITH '.dll'
+                   OR toLower(f.name) ENDS WITH '.bat' OR toLower(f.name) ENDS WITH '.sys'
+                   OR toLower(f.name) ENDS WITH '.cmd' OR toLower(f.name) ENDS WITH '.ps1')
+            RETURN f.name AS file, f.path AS path,
+                   f.born_time AS born, f.modified_time AS modified,
+                   f.accessed_time AS accessed
+            ORDER BY f.born_time DESC
+            LIMIT 200
+        """,
+        "summarize_query": """
+            MATCH (f:File)
+            WHERE f.born_time IS NOT NULL
+              AND (toLower(f.name) ENDS WITH '.exe' OR toLower(f.name) ENDS WITH '.dll'
+                   OR toLower(f.name) ENDS WITH '.bat' OR toLower(f.name) ENDS WITH '.sys'
+                   OR toLower(f.name) ENDS WITH '.cmd' OR toLower(f.name) ENDS WITH '.ps1')
+            WITH date(f.born_time) AS born_date, f
+            WITH born_date, count(f) AS files_born, collect(f.name)[0..5] AS samples
+            RETURN born_date, files_born, samples
+            ORDER BY born_date DESC
+            LIMIT 30
+        """,
+        "tactic": "Execution",
+        "technique": "T1204",
+    },
+    "temporal_anomaly_files": {
+        "description": "Files born recently in directories where most files are much older — potential malware dropped among legitimate files",
+        "query": """
+            MATCH (f:File)
+            WHERE f.born_time IS NOT NULL
+            WITH f,
+                 split(f.path, '\\\\') AS parts
+            WITH f, parts,
+                 reduce(s = '', x IN parts[0..size(parts)-1] | s + x + '\\\\') AS dir_path
+            WITH dir_path, collect(f) AS dir_files, count(f) AS file_count
+            WHERE file_count >= 3
+            UNWIND dir_files AS f
+            WITH dir_path, f, file_count,
+                 f.born_time AS born
+            ORDER BY born DESC
+            WITH dir_path, file_count,
+                 collect({name: f.name, path: f.path, born: f.born_time,
+                          modified: f.modified_time})[0..3] AS newest_files,
+                 collect(f.born_time) AS all_born
+            WITH dir_path, file_count, newest_files, all_born,
+                 all_born[0] AS newest_born,
+                 all_born[toInteger(size(all_born)/2)] AS median_born
+            WHERE newest_born IS NOT NULL AND median_born IS NOT NULL
+              AND duration.between(median_born, newest_born).months > 6
+            RETURN dir_path, file_count,
+                   newest_born AS newest_file_born,
+                   median_born AS median_file_born,
+                   duration.between(median_born, newest_born) AS age_gap,
+                   newest_files
+            ORDER BY duration.between(median_born, newest_born) DESC
+            LIMIT 100
+        """,
+        "summarize_query": """
+            MATCH (f:File)
+            WHERE f.born_time IS NOT NULL
+              AND (toLower(f.name) ENDS WITH '.exe' OR toLower(f.name) ENDS WITH '.dll'
+                   OR toLower(f.name) ENDS WITH '.bat' OR toLower(f.name) ENDS WITH '.sys')
+            WITH f,
+                 split(f.path, '\\\\') AS parts
+            WITH f, parts,
+                 reduce(s = '', x IN parts[0..size(parts)-1] | s + x + '\\\\') AS dir_path
+            WITH dir_path, collect(f) AS dir_files, count(f) AS file_count
+            WHERE file_count >= 2
+            UNWIND dir_files AS f
+            WITH dir_path, f, file_count
+            ORDER BY f.born_time DESC
+            WITH dir_path, file_count,
+                 collect({name: f.name, born: f.born_time})[0..3] AS newest_files,
+                 collect(f.born_time) AS all_born
+            WITH dir_path, file_count, newest_files, all_born,
+                 all_born[0] AS newest_born,
+                 all_born[toInteger(size(all_born)/2)] AS median_born
+            WHERE newest_born IS NOT NULL AND median_born IS NOT NULL
+              AND duration.between(median_born, newest_born).months > 6
+            RETURN dir_path, file_count,
+                   newest_born AS newest_file_born,
+                   median_born AS median_file_born,
+                   newest_files AS recently_dropped
+            ORDER BY newest_born DESC
+            LIMIT 20
+        """,
+        "tactic": "Defense Evasion",
+        "technique": "T1036.005",
+    },
 }
