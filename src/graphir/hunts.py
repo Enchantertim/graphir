@@ -11,6 +11,10 @@ Add new hunts here. server.py loads them automatically.
 """
 
 from graphir.temporal_integrity import detail_query, summary_query
+from graphir.known_good import not_known_good
+
+_NKG_PROC = not_known_good("p.name")
+_NKG_EXE = not_known_good("x.name")
 
 HUNT_QUERIES = {
     "suspicious_process_chain": {
@@ -130,19 +134,22 @@ HUNT_QUERIES = {
         "technique": "T1543.003",
     },
     "rare_processes": {
-        "description": "Rarely executed processes — anomaly detection by frequency (excludes PID stubs)",
-        "query": """
+        "description": "Rarely executed processes — anomaly detection by frequency "
+                       "(excludes PID stubs and common known-good OS/OEM binaries by name)",
+        "query": f"""
             MATCH (p:Process)
             WHERE NOT p.name STARTS WITH '0x'
+              AND {_NKG_PROC}
             WITH p.name AS proc_name, count(*) AS exec_count
             WHERE exec_count <= 2
             RETURN proc_name, exec_count
             ORDER BY exec_count ASC
             LIMIT 100
         """,
-        "summarize_query": """
+        "summarize_query": f"""
             MATCH (p:Process)
             WHERE NOT p.name STARTS WITH '0x'
+              AND {_NKG_PROC}
             WITH p.name AS proc_name, count(*) AS exec_count,
                  collect(DISTINCT p.cmdline)[0..2] AS sample_cmdlines,
                  collect(DISTINCT p.user)[0..2] AS users
@@ -384,26 +391,28 @@ HUNT_QUERIES = {
         "technique": "T1078",
     },
     "unusual_executables": {
-        "description": "Executables with evidence from non-standard paths — amcache/shimcache/prefetch outside Windows/ProgramFiles",
-        "query": """
+        "description": "Executables with evidence from non-standard paths — amcache/shimcache/prefetch outside Windows/ProgramFiles (known-good OS/OEM names demoted)",
+        "query": f"""
             MATCH (h:Host)-[:HAS_EXECUTABLE]->(x:Executable)
             WHERE x.path IS NOT NULL
               AND NOT toLower(x.path) STARTS WITH 'c:\\windows'
               AND NOT toLower(x.path) STARTS WITH 'c:\\program files'
               AND NOT toLower(x.path) STARTS WITH '\\systemroot'
               AND NOT x.path STARTS WITH '0'
+              AND {_NKG_EXE}
             RETURN x.name AS name, x.path AS path, x.sha1 AS hash,
                    x.run_count AS runs, h.hostname AS host
             ORDER BY x.path
             LIMIT 200
         """,
-        "summarize_query": """
+        "summarize_query": f"""
             MATCH (h:Host)-[:HAS_EXECUTABLE]->(x:Executable)
             WHERE x.path IS NOT NULL
               AND NOT toLower(x.path) STARTS WITH 'c:\\\\windows'
               AND NOT toLower(x.path) STARTS WITH 'c:\\\\program files'
               AND NOT toLower(x.path) STARTS WITH '\\\\systemroot'
               AND NOT x.path STARTS WITH '0'
+              AND {_NKG_EXE}
             WITH CASE
                    WHEN toLower(x.path) CONTAINS '\\\\temp\\\\' THEN 'SUSPICIOUS_temp'
                    WHEN toLower(x.path) CONTAINS '\\\\appdata\\\\' THEN 'user_appdata'

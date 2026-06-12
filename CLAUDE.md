@@ -46,6 +46,12 @@ as "unprovable, possibly destroyed" — report the destruction itself as a Defen
 Evasion finding and note which artifact classes are untrustworthy. Never let wiping
 push you toward a confident negative ("no malware ran here").
 
+**Known-good demotion is name-based, not proof of benign.** `rare_processes` and
+`unusual_executables` demote common OS/OEM binary names (`known_good.py`) to cut
+noise — but a malicious file named `svchost.exe` still matches the allowlist. The
+timestomping, temporal-anomaly, and known-malware hunts deliberately do NOT apply
+it. Never treat "known-good name" as exoneration; verify before clearing.
+
 **Investigate anomalies thoroughly:**
 - IP-named executables — search for that IP across ALL graph data
 - Files in NETLOGON/admin$/SYSVOL — trace the source DC, check for other executables from the same share
