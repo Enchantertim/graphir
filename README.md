@@ -224,8 +224,7 @@ graphir/
 │   ├── server.py               # MCP server — 26 typed tools
 │   ├── graph.py                # Neo4j schema (8 vertex types, 9 edge types)
 │   ├── batch_ingest.py         # High-performance UNWIND batched ingestion (MACB-aware)
-│   ├── ingest.py               # Per-event ingestion (reference implementation)
-│   ├── hunts.py                # Hunt pattern definitions (20 queries)
+│   ├── hunts.py                # Hunt pattern definitions (22 queries)
 │   ├── provenance.py           # Origin tracking, atomic claims, predicate templates
 │   ├── verification.py         # Dual-path verification engine
 │   ├── corrections.py          # FP/hallucination tracking as graph entities

@@ -13,3 +13,4 @@ evidence/
 .DS_Store
 investigation-output/
 *.log.gz
+.serena/
