@@ -6,7 +6,11 @@ import os
 from mcp.server.fastmcp import FastMCP
 from neo4j import GraphDatabase
 
-from graphir.graph import init_schema
+from graphir.graph import init_schema, link_binaries
+from graphir.reconstruct import reconstruct, materialize_findings
+from graphir.temporal_integrity import (
+    backfill_record_numbers, summary_query, detail_query,
+)
 from graphir.batch_ingest import BatchIngester
 from graphir.verification import VerificationEngine
 from graphir.corrections import (
@@ -210,6 +214,7 @@ def ingest_timeline(path: str, default_hostname: str = "unknown",
         ingester = BatchIngester(run_cypher, default_hostname=default_hostname)
         stats = ingester.ingest_file(path, priority_only=priority_only,
                                      max_events=max_events)
+        stats["binary_links"] = link_binaries(run_cypher)
         return json.dumps(stats, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -253,6 +258,7 @@ def ingest_multi(directory: str, priority_only: bool = True) -> str:
             "files_ingested": len(all_stats),
             "total_events": sum(s.get("events_processed", 0) for s in all_stats),
             "total_errors": sum(s.get("errors", 0) for s in all_stats),
+            "binary_links": link_binaries(run_cypher),
             "per_file": all_stats,
         }
         return json.dumps(total, default=str, indent=2)
@@ -288,20 +294,107 @@ def query_graph(cypher: str, max_results: int = 200) -> str:
         return json.dumps({"error": str(e)})
 
 
+# Hunts whose hits map onto a verification predicate family.
+# (finding_type, fn(row) -> (entity, target) or None to skip the row)
+_VERIFIABLE_HUNTS = {
+    "lateral_movement_logons": (
+        "lateral_movement",
+        lambda row: (row.get("user"), row.get("host"))
+        if row.get("user") and row.get("host") else None,
+    ),
+    "suspicious_process_chain": (
+        "process_chain",
+        lambda row: (row.get("ancestor"), row.get("child"))
+        if row.get("ancestor") and row.get("child") else None,
+    ),
+    "lsass_access": (
+        "credential_access",
+        lambda row: (row.get("accessor"), "")
+        if row.get("accessor") else None,
+    ),
+    "service_installation": (
+        "persistence_service",
+        lambda row: (row.get("examples", [None])[0], "")
+        if row.get("examples") else None,
+    ),
+}
+
+_AUTO_VERIFY_MAX_PER_HUNT = 3
+
+
+def _auto_verify_hunt(engine, hunt_name: str, rows: list[dict]) -> dict | list:
+    """Structurally verify the top hits of a hunt, if it has a predicate family."""
+    mapping = _VERIFIABLE_HUNTS.get(hunt_name)
+    if not mapping:
+        return {"status": "no_predicate_family",
+                "note": "verify manually with verify_finding before reporting"}
+    finding_type, extract = mapping
+
+    verifications = []
+    for row in rows[:_AUTO_VERIFY_MAX_PER_HUNT]:
+        extracted = extract(row)
+        if not extracted:
+            continue
+        entity, target = extracted
+        narrative = f"[auto-verify:{hunt_name}] {entity}" + (
+            f" -> {target}" if target else "")
+        try:
+            verify = {
+                "lateral_movement": lambda: engine.verify_lateral_movement(
+                    entity, target, narrative),
+                "process_chain": lambda: engine.verify_process_chain(
+                    entity, target, narrative),
+                "credential_access": lambda: engine.verify_credential_access(
+                    entity, narrative),
+                "persistence_service": lambda: engine.verify_persistence(
+                    entity, narrative),
+            }[finding_type]
+            finding = verify()
+            failed = [p.name for c in finding.claims
+                      for p in c.predicates if p.passed is False]
+            confidence = str(finding.confidence)
+            verifications.append({
+                "entity": entity,
+                **({"target": target} if target else {}),
+                "confidence": confidence,
+                **({"failed_predicates": failed} if failed else {}),
+            })
+            _investigation_log.log_verification(
+                narrative, confidence,
+                [p.name for c in finding.claims
+                 for p in c.predicates if p.passed],
+                failed,
+            )
+        except Exception as e:
+            verifications.append({"entity": entity, "error": str(e)})
+    return verifications
+
+
 @mcp.tool()
-def find_evil(summarize: bool = True) -> str:
+def find_evil(summarize: bool = True, auto_verify: bool = True) -> str:
     """Run all predefined hunt patterns against the investigation graph.
 
     Executes a battery of generic DFIR detection queries and returns scored findings.
     Use this as the first step in any investigation to get initial indicators.
 
+    With auto_verify (default), hunts that map to a verification predicate family
+    (lateral movement, process chains, lsass access, service persistence) have their
+    top hits pushed through the VerificationEngine automatically — triage output
+    arrives pre-labeled CONFIRMED / INFERENCE / INSUFFICIENT_EVIDENCE with failed
+    predicates named. Hunts without a predicate family report
+    verification: "no_predicate_family" — verify those manually before reporting.
+
     Args:
         summarize: If True (default), consolidate results by grouping duplicates
                   and returning counts + top examples instead of raw rows.
                   Set False for full raw results (may be large).
+        auto_verify: If True (default), structurally verify top hits of
+                  verifiable hunts and attach per-hit confidence labels.
     """
     findings = []
     MAX_RESULTS_PER_HUNT = 10  # Cap per-hunt results to keep output manageable
+
+    engine = VerificationEngine(run_cypher) if auto_verify else None
 
     for hunt_name, hunt in HUNT_QUERIES.items():
         try:
@@ -321,6 +414,9 @@ def find_evil(summarize: bool = True) -> str:
                 if total_count > MAX_RESULTS_PER_HUNT:
                     entry["truncated"] = True
                     entry["showing"] = MAX_RESULTS_PER_HUNT
+                if engine:
+                    entry["verification"] = _auto_verify_hunt(
+                        engine, hunt_name, capped)
                 findings.append(entry)
         except Exception as e:
             findings.append(
@@ -462,6 +558,99 @@ def temporal_chain(entity_name: str, start_time: str, end_time: str) -> str:
         if not results:
             return json.dumps({"status": "no_activity", "message": f"No activity for '{entity_name}' in the specified time window."})
         return json.dumps(results, default=str, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def reconstruct_attack(username: str = "", materialize: bool = True) -> str:
+    """Reconstruct the attack chain from the graph as a structured narrative.
+
+    Walks the evidence graph (not your memory) and assembles ordered phases:
+    lateral movement (each hop independently verified — per-hop CONFIRMED /
+    INFERENCE / INSUFFICIENT_EVIDENCE), cross-host tool deployment with MACB
+    anomalies via SAME_BINARY edges, service persistence, and anti-forensics.
+    Returns a `mermaid` field — paste it into the investigation report to
+    render the attack-chain diagram.
+
+    With materialize=True (default), findings are written into the graph as
+    (:Finding) vertices with SUPPORTED_BY edges to their evidence entities,
+    so the narrative itself becomes traversable: finding -> entity -> event
+    -> raw artifact line. Idempotent.
+
+    Args:
+        username: Focus account. Empty = auto-select the human account with
+                  network logons to the most hosts.
+        materialize: Write (:Finding)-[:SUPPORTED_BY]-> nodes into the graph.
+    """
+    try:
+        engine = VerificationEngine(run_cypher)
+        result = reconstruct(run_cypher, engine, username=username)
+        if materialize and result.get("phases"):
+            result["materialized"] = materialize_findings(
+                run_cypher, result, _investigation_log.investigation_id)
+        for phase in result.get("phases", []):
+            if phase["phase"] == "lateral_movement":
+                _investigation_log.log_finding(
+                    f"Attack chain reconstructed for {result['actor']}: "
+                    f"{len(phase.get('hops', []))} hops",
+                    "CONFIRMED" if any(
+                        h.get("confidence") == "CONFIRMED"
+                        for h in phase.get("hops", [])) else "INFERENCE",
+                    tactic=phase["tactic"], technique=phase["technique"],
+                )
+        return json.dumps(result, default=str, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def temporal_integrity(inversion_min_seconds: int = 60,
+                       forward_jump_days: int = 7) -> str:
+    """Detect clock tampering / time compression from EVTX write-order vs timestamps.
+
+    EVTX stamps every record with a monotonic RecordNumber at write time,
+    independent of the system clock. Ordering a provider channel by RecordNumber
+    must yield non-decreasing timestamps. Two violations expose a manipulated clock:
+
+      INVERSION (high confidence): RecordNumber increases but the timestamp moves
+        backward by more than inversion_min_seconds. Near-impossible on a single
+        channel without the clock being set back — the scar of host-side clock
+        control (VM time compression) or anti-forensic clock manipulation.
+      FORWARD_JUMP (supporting): an implausibly large calendar gap between adjacent
+        records. Sparse provider channels gap naturally, so treat as corroborating,
+        not proof.
+
+    This is how staged / time-compressed images are caught without the raw VMDK:
+    the timestamps lie, the RecordNumber sequence does not. It cannot recover the
+    true wall-clock or see VMDK-container manipulation (that needs the raw image).
+
+    Backfills record_number from message text on first run (older graphs).
+
+    Args:
+        inversion_min_seconds: Minimum backward step to count as an inversion
+            (default 60 — floors out routine sub-minute NTP corrections).
+        forward_jump_days: Forward gap (days) between adjacent records to flag.
+    """
+    try:
+        backfilled = backfill_record_numbers(run_cypher)
+        summary = run_cypher(summary_query(inversion_min_seconds, forward_jump_days))
+        detail = run_cypher(detail_query(inversion_min_seconds, forward_jump_days))
+# A backward step > 1 day exceeds any timezone/DST/NTP explanation — treat as
+        # tampering. Smaller inversions are reported but don't trip the verdict.
+        tampered = [r for r in summary
+                    if r["inversions"] > 0 and (r.get("worst_inversion_days") or 0) < -1]
+        verdict = "CLOCK_TAMPERING_DETECTED" if tampered else "NO_SIGNIFICANT_INVERSIONS"
+        return json.dumps({
+            "verdict": verdict,
+            "record_numbers_backfilled": backfilled,
+            "thresholds": {"inversion_min_seconds": inversion_min_seconds,
+                           "forward_jump_days": forward_jump_days},
+            "per_host": summary,
+            "anomalies": detail,
+            "note": "INVERSION = high-confidence clock tampering; FORWARD_JUMP = "
+                    "supporting (sparse channels gap naturally).",
+        }, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
