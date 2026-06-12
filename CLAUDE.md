@@ -32,7 +32,10 @@ The user says **"find [mode]"**:
 image you don't fully trust. EVTX RecordNumber increments at write time independent
 of the clock; if it rises while timestamps move backward (INVERSION) the clock was
 set back — host-side time compression, a staged dataset, or anti-forensic clock
-manipulation. The timestamps lie, the record sequence doesn't. Can't see VMDK-level
+manipulation. The timestamps lie, the record sequence doesn't. It also corroborates
+across logging subsystems: if inversions span many independent providers it reports
+SYSTEM_CLOCK_MANIPULATION (the clock moved system-wide); confined to one or two,
+ISOLATED_LOG_ANOMALY (a single log may have been edited). Can't see VMDK-level
 manipulation (needs the raw image), only its scars in the guest logs.
 
 **Account for anti-forensics (trodden snow):** Absence of evidence is ambiguous —

@@ -81,6 +81,38 @@ def summary_query(inversion_min_seconds: int = _INVERSION_MIN_SECONDS,
 """
 
 
+# A clock move is system-wide: it perturbs every logging subsystem at once. Log
+# *editing* is surgical: it touches one channel. So the number of INDEPENDENT
+# providers showing a significant backward jump discriminates the two.
+_SYSTEM_WIDE_PROVIDER_THRESHOLD = 3
+
+
+def corroboration_query(inversion_min_days: float = 1.0) -> str:
+    """Per host: how many DISTINCT providers show a backward jump beyond
+    inversion_min_days. Cross-source corroboration — inversions spanning many
+    unrelated logging subsystems mean the system clock moved (time compression),
+    not that a single log was edited.
+    """
+    return _PAIR_CTE + f"""
+    WHERE delta_days < -{float(inversion_min_days)}
+    WITH host, provider, count(*) AS inv
+    RETURN host,
+           count(DISTINCT provider) AS providers_with_inversions,
+           sum(inv) AS significant_inversions,
+           collect(DISTINCT provider)[0..8] AS sample_providers
+    ORDER BY providers_with_inversions DESC
+"""
+
+
+def classify_host(providers_with_inversions: int) -> str:
+    """Forensic interpretation of a host's inversion spread."""
+    if providers_with_inversions >= _SYSTEM_WIDE_PROVIDER_THRESHOLD:
+        return "SYSTEM_CLOCK_MANIPULATION"  # clock moved system-wide (time compression)
+    if providers_with_inversions >= 1:
+        return "ISOLATED_LOG_ANOMALY"       # one subsystem — possible single-log tampering
+    return "NO_SIGNIFICANT_INVERSIONS"
+
+
 def backfill_record_numbers(run_cypher, batch_size: int = 5000) -> int:
     """One-time migration: parse RecordNumber from message text into a property.
 

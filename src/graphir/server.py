@@ -10,6 +10,7 @@ from graphir.graph import init_schema, link_binaries
 from graphir.reconstruct import reconstruct, materialize_findings
 from graphir.temporal_integrity import (
     backfill_record_numbers, summary_query, detail_query,
+    corroboration_query, classify_host,
 )
 from graphir.batch_ingest import BatchIngester
 from graphir.verification import VerificationEngine
@@ -621,6 +622,12 @@ def temporal_integrity(inversion_min_seconds: int = 60,
         records. Sparse provider channels gap naturally, so treat as corroborating,
         not proof.
 
+    Cross-source corroboration: a clock move perturbs every logging subsystem at
+    once; log *editing* touches one channel. So per host we count how many
+    INDEPENDENT providers show a >1-day backward jump and classify:
+      SYSTEM_CLOCK_MANIPULATION  — inversions span >=3 providers (clock moved)
+      ISOLATED_LOG_ANOMALY       — confined to 1-2 (possible single-log tampering)
+
     This is how staged / time-compressed images are caught without the raw VMDK:
     the timestamps lie, the RecordNumber sequence does not. It cannot recover the
     true wall-clock or see VMDK-container manipulation (that needs the raw image).
@@ -636,20 +643,38 @@ def temporal_integrity(inversion_min_seconds: int = 60,
         backfilled = backfill_record_numbers(run_cypher)
         summary = run_cypher(summary_query(inversion_min_seconds, forward_jump_days))
         detail = run_cypher(detail_query(inversion_min_seconds, forward_jump_days))
-# A backward step > 1 day exceeds any timezone/DST/NTP explanation — treat as
-        # tampering. Smaller inversions are reported but don't trip the verdict.
-        tampered = [r for r in summary
-                    if r["inversions"] > 0 and (r.get("worst_inversion_days") or 0) < -1]
-        verdict = "CLOCK_TAMPERING_DETECTED" if tampered else "NO_SIGNIFICANT_INVERSIONS"
+        corroboration = run_cypher(corroboration_query(inversion_min_days=1.0))
+
+        # Attach the cross-source classification to each host.
+        spread = {r["host"]: r for r in corroboration}
+        for row in summary:
+            c = spread.get(row["host"])
+            providers = c["providers_with_inversions"] if c else 0
+            row["classification"] = classify_host(providers)
+            row["providers_with_significant_inversions"] = providers
+
+        # System-wide manipulation on any host is the tampering verdict; a backward
+        # step > 1 day already exceeds any timezone/DST/NTP explanation.
+        if any(r["classification"] == "SYSTEM_CLOCK_MANIPULATION" for r in summary):
+            verdict = "CLOCK_TAMPERING_DETECTED"
+        elif any(r["classification"] == "ISOLATED_LOG_ANOMALY" for r in summary):
+            verdict = "ISOLATED_LOG_ANOMALY"
+        else:
+            verdict = "NO_SIGNIFICANT_INVERSIONS"
+
         return json.dumps({
             "verdict": verdict,
             "record_numbers_backfilled": backfilled,
             "thresholds": {"inversion_min_seconds": inversion_min_seconds,
-                           "forward_jump_days": forward_jump_days},
+                           "forward_jump_days": forward_jump_days,
+                           "system_wide_provider_threshold": 3},
             "per_host": summary,
+            "corroboration": corroboration,
             "anomalies": detail,
             "note": "INVERSION = high-confidence clock tampering; FORWARD_JUMP = "
-                    "supporting (sparse channels gap naturally).",
+                    "supporting (sparse channels gap naturally). "
+                    "SYSTEM_CLOCK_MANIPULATION = inversions span multiple "
+                    "independent providers (clock moved, not a log edited).",
         }, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
