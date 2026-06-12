@@ -282,4 +282,16 @@ def materialize_findings(run_cypher, result: dict,
                     "tool": w["tool"],
                 })
                 created += 1
-    return {"findings_materialized": created}
+
+    # L0+ : group this investigation's findings under an Incident node, so the
+    # fractal closes at the top (Incident -> Finding -> entity -> Artifact).
+    incident_id = investigation_id or "unscoped"
+    run_cypher("""
+        MERGE (inc:Incident {incident_id: $inc})
+        ON CREATE SET inc.actor = $actor, inc._origin_tool = 'reconstruct_attack'
+        WITH inc
+        MATCH (fi:Finding {investigation_id: $inc})
+        MERGE (fi)-[:PART_OF]->(inc)
+        RETURN count(fi) AS linked
+    """, {"inc": incident_id, "actor": actor})
+    return {"findings_materialized": created, "incident_id": incident_id}

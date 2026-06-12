@@ -683,6 +683,49 @@ def temporal_integrity(inversion_min_seconds: int = 60,
 
 
 @mcp.tool()
+def correlate_incidents() -> str:
+    """Find entities that evidence findings across MORE THAN ONE incident.
+
+    The campaign primitive: when the same attacker tool, account, or host
+    supports findings in separate investigations (Incident nodes), those cases
+    are likely the same actor / campaign. This is the top rung of the schema's
+    fractal — Incident groups Findings, and shared evidence links Incidents into
+    a campaign without flattening the per-case provenance.
+
+    Returns shared entities with the incidents they connect. Empty when only one
+    incident exists (single-case graph) — the correlation is structural and
+    activates as more cases are ingested into the same graph.
+    """
+    try:
+        shared = run_cypher("""
+            MATCH (e)<-[:SUPPORTED_BY]-(:Finding)-[:PART_OF]->(inc:Incident)
+            WITH e, collect(DISTINCT inc.incident_id) AS incidents
+            WHERE size(incidents) > 1
+            RETURN labels(e)[0] AS entity_type,
+                   coalesce(e.name, e.hostname, e.path) AS entity,
+                   incidents, size(incidents) AS incident_count
+            ORDER BY incident_count DESC
+            LIMIT 100
+        """)
+        incidents = run_cypher("""
+            MATCH (inc:Incident)
+            OPTIONAL MATCH (fi:Finding)-[:PART_OF]->(inc)
+            RETURN inc.incident_id AS incident_id, inc.actor AS actor,
+                   count(fi) AS findings
+            ORDER BY findings DESC
+        """)
+        return json.dumps({
+            "incidents": incidents,
+            "shared_entities": shared,
+            "campaign_links": len(shared),
+            "note": "shared_entities connect multiple incidents — likely the same "
+                    "actor/campaign. Empty on a single-case graph.",
+        }, default=str, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
 def graph_stats() -> str:
     """Return summary statistics about the current investigation graph.
 

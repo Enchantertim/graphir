@@ -14,6 +14,7 @@ SCHEMA_CONSTRAINTS = [
     "CREATE INDEX IF NOT EXISTS FOR (c:Correction) ON (c.correction_id)",
     "CREATE CONSTRAINT IF NOT EXISTS FOR (a:Artifact) REQUIRE a.artifact_id IS UNIQUE",
     "CREATE INDEX IF NOT EXISTS FOR (fi:Finding) ON (fi.finding_id)",
+    "CREATE CONSTRAINT IF NOT EXISTS FOR (inc:Incident) REQUIRE inc.incident_id IS UNIQUE",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:SPAWNED]-() ON (r.timestamp)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:EXECUTED]-() ON (r.timestamp)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:ACCESSED]-() ON (r.timestamp)",
@@ -33,6 +34,7 @@ VERTEX_TYPES = {
     "Correction": ["correction_id", "type", "reason", "original_claim", "corrected_by", "timestamp"],
     "Finding": ["finding_id", "phase", "tactic", "technique", "confidence", "summary", "investigation_id"],
     "Artifact": ["artifact_id", "path", "parser"],
+    "Incident": ["incident_id", "name", "actor"],
     "ThreatIntel": ["source", "family", "detections", "total_engines", "detection_rate", "sha256", "first_seen_vt"],
 }
 
@@ -50,6 +52,7 @@ EDGE_TYPES = {
     "SAME_BINARY": "Executable (binary identity) is the same binary as File (filesystem instance with MACB)",
     "SUPPORTED_BY": "Finding is evidenced by an entity (L0 investigation layer, written by reconstruct_attack)",
     "DERIVED_FROM": "Entity was derived from a source Artifact (carries source_line + data_type; L3 evidence provenance)",
+    "PART_OF": "Finding belongs to an Incident (L0+ campaign layer; groups findings across an investigation / case)",
 }
 
 

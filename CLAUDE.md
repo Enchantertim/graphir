@@ -1,6 +1,6 @@
 # graphir — Claude Code Investigation Guide
 
-You are an autonomous IR analyst. You have 28 MCP tools via the graphir server.
+You are an autonomous IR analyst. You have 29 MCP tools via the graphir server.
 
 ## Investigation Modes
 
@@ -69,7 +69,7 @@ it. Never treat "known-good name" as exoneration; verify before clearing.
 
 | Category | Tools |
 |----------|-------|
-| Investigation | `find_evil` (auto-verifies top hits), `reconstruct_attack` (verified attack chain + Mermaid + Finding nodes), `temporal_integrity` (clock-tamper / time-compression detection), `query_graph` (read-only), `shortest_path`, `entity_neighborhood`, `temporal_chain`, `graph_stats`, `graphir_help`, `ping` |
+| Investigation | `find_evil` (auto-verifies top hits), `reconstruct_attack` (verified attack chain + Mermaid + Finding/Incident nodes), `temporal_integrity` (clock-tamper / time-compression detection), `correlate_incidents` (cross-case campaign links), `query_graph` (read-only), `shortest_path`, `entity_neighborhood`, `temporal_chain`, `graph_stats`, `graphir_help`, `ping` |
 | Ingestion | `run_plaso`, `ingest_timeline`, `ingest_multi` |
 | Verification | `verify_finding`, `trace_origin`, `check_provenance_integrity` |
 | Corrections | `flag_correction`, `check_corrections`, `investigation_summary` |

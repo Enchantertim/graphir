@@ -221,10 +221,10 @@ graphir/
 ├── pyproject.toml
 ├── LICENSE                     # MIT
 ├── src/graphir/
-│   ├── server.py               # MCP server — 28 typed tools
+│   ├── server.py               # MCP server — 29 typed tools
 │   ├── reconstruct.py          # Verified attack-chain reconstruction (narrative + Mermaid)
 │   ├── temporal_integrity.py   # Clock-tamper / time-compression detection (RecordNumber vs timestamp)
-│   ├── graph.py                # Neo4j schema (11 vertex types, 13 edge types)
+│   ├── graph.py                # Neo4j schema (12 vertex types, 14 edge types)
 │   ├── batch_ingest.py         # High-performance UNWIND batched ingestion (MACB-aware)
 │   ├── hunts.py                # Hunt pattern definitions (22 queries)
 │   ├── provenance.py           # Origin tracking, atomic claims, predicate templates

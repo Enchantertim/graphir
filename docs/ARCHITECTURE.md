@@ -51,7 +51,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │                Neo4j 5 Community                              │     │
 │   │                graphir-neo4j (Docker)                          │     │
 │   │                                                                │     │
-│   │  Graph Schema (11 vertex types, 13 edge types):                │     │
+│   │  Graph Schema (12 vertex types, 14 edge types):                │     │
 │   │                                                                │     │
 │   │  (Process)──SPAWNED──>(Process)──ACCESSED──>(Process)          │     │
 │   │    │                    │                     lsass.exe         │     │
@@ -88,6 +88,7 @@ raw artifact line without leaving the graph.
 ```mermaid
 graph TB
     subgraph L0["L0 — INVESTIGATION (the analyst's mental model)"]
+        INCIDENT[Incident]
         FINDING[Finding]
         CORRECTION[Correction]
     end
@@ -105,6 +106,7 @@ graph TB
         ARTIFACT["Artifact (source file + parser)"]
     end
 
+    FINDING -->|PART_OF| INCIDENT
     FINDING -->|SUPPORTED_BY| USER
     FINDING -->|SUPPORTED_BY| EXE
     CORRECTION -->|CORRECTS| PROCESS
