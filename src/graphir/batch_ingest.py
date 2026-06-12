@@ -106,6 +106,18 @@ def _parse_ts(ts_value) -> str | None:
     return str(ts_value)
 
 
+def _safe_int(value):
+    """Coerce a value to int, returning None if not parseable.
+
+    Used for EVTX record_number, which must be numeric to support
+    write-order (record-sequence) analysis in the temporal_integrity hunt.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _safe_index(lst, idx):
     if not lst or idx >= len(lst):
         return None
@@ -253,6 +265,7 @@ class BatchIngester:
                 "ts": ts,
                 "message": str(event.get("message", ""))[:2000],
                 "channel": event.get("channel", ""),
+                "record_number": _safe_int(record_num),
                 **origin,
             })
 
@@ -498,6 +511,7 @@ BATCH_QUERIES = {
             e.timestamp = datetime(evt.ts),
             e.message = evt.message,
             e.channel = evt.channel,
+            e.record_number = evt.record_number,
             e._origin_tool = evt._origin_tool,
             e._origin_artifact = evt._origin_artifact,
             e._origin_parser = evt._origin_parser,
