@@ -157,6 +157,42 @@ Tested against the official hackathon starter data (SRL-2015): Domain Controller
 | Investigation time | 5 minutes 38 seconds autonomous |
 | Output package | Investigative report (MD+DOCX), audit report, evidence chain, ATT&CK Navigator, 8 Sigma rules |
 
+### Trust-Model Benchmark (adversarial verification testing)
+
+Detection benchmarks measure whether the tool finds true evil. This benchmark
+measures the inverse — the property that defines graphir's thesis: **when the
+agent asserts something false, does the verification engine refuse to confirm it?**
+
+We fed the `VerificationEngine` 12 claims against the SANS 508 multi-host graph
+(737K events, 26 hosts), in three categories:
+
+- **4 TRUE claims** — full structural support (e.g. vibranium lateral movement to
+  the DC, F-Response service install)
+- **7 FALSE claims** — fabricated entities (`blackwidow_adm`, `UpdaterProSvc`,
+  a `winword.exe → powershell.exe` chain that never happened) **and false pairings
+  of two real entities** (vibranium → a real host they never logged into; nfury → DC).
+  False pairings are the hardest case: every entity exists, only the relationship
+  is fabricated.
+- **1 PARTIAL claim** — real entity, broken evidence chain (hydrakatz.exe present
+  on disk on 2 hosts, but no lsass ACCESSED edge — would require memory analysis)
+
+| Metric | Result |
+|--------|--------|
+| True claims confirmed | 4/4 |
+| False claims downgraded to INSUFFICIENT_EVIDENCE | 7/7 |
+| Partial claims downgraded (not CONFIRMED) | 1/1 |
+| **False-confirmation rate** | **0/8 (0%)** |
+
+Every false claim was rejected with the specific failed predicates named
+(`auth_edge_exists`, `spawned_edge_exists`, …) — the downgrade is explainable,
+not just a score. Reproduce with:
+
+```bash
+.venv/bin/python tests/benchmark_trust_model.py --json investigation-output/trust-model-benchmark.json
+```
+
+Full per-claim results: `investigation-output/trust-model-benchmark.json`.
+
 ### What Success Looks Like
 
 A successful accuracy report shows:
