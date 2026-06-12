@@ -29,23 +29,86 @@ from graphir.provenance import (
 
 logger = logging.getLogger(__name__)
 
+_UNCHECKED = object()  # sentinel: destruction probe not yet run
+
 
 class VerificationEngine:
     """Verifies atomic claims via dual-path comparison against the graph."""
 
     def __init__(self, run_cypher_fn):
         self.run_cypher = run_cypher_fn
+        self._destruction_state = _UNCHECKED
 
     # ------------------------------------------------------------------
     # Core: verify a single atomic claim (execute all its predicates)
     # ------------------------------------------------------------------
 
     def verify_claim(self, claim: AtomicClaim) -> AtomicClaim:
-        """Execute all predicates and evaluate confidence mechanically."""
+        """Execute all predicates and evaluate confidence mechanically.
+
+        After evaluation, ABSENT_DATA failures are annotated with the
+        environment's evidence-destruction state: on a host where wiping
+        tooling or artifact gaps were detected, "no evidence found" means
+        "unprovable, possibly destroyed" — not "didn't happen".
+        """
         for pred in claim.predicates:
             self._execute_predicate(pred)
         claim.evaluate()
+
+        if any(p.failure_reason == DivergenceReason.ABSENT_DATA
+               for p in claim.predicates if p.passed is False):
+            destruction = self._check_evidence_destruction()
+            if destruction:
+                claim.divergences.append({
+                    "divergence_number": claim.divergence_count + 1,
+                    "predicate": "(environment)",
+                    "reason": "destroyed_evidence_possible",
+                    "detail": (
+                        "Evidence destruction detected in this graph — absent "
+                        "structural evidence is ambiguous on affected hosts: "
+                        "it may have been wiped rather than never created. "
+                        "Treat INSUFFICIENT_EVIDENCE as 'unprovable', not as "
+                        "a confident negative."
+                    ),
+                    "failure_detail": destruction,
+                    "suggested_correction": "complementary_artifact",
+                })
         return claim
+
+    def _check_evidence_destruction(self) -> dict | None:
+        """Probe the graph for anti-forensics state (cached per engine).
+
+        Returns a dict naming wiper tooling and artifact-gap hosts, or None
+        if the environment shows no signs of evidence destruction.
+        """
+        if self._destruction_state is not _UNCHECKED:
+            return self._destruction_state
+        try:
+            wipers = self.run_cypher("""
+                MATCH (h:Host)-[r:HAS_EXECUTABLE]->(x:Executable)
+                WHERE any(t IN ['ccleaner', 'bleachbit', 'sdelete', 'bcwipe',
+                                'eraser', 'privazer']
+                          WHERE toLower(x.path) CONTAINS t)
+                RETURN x.name AS tool, collect(DISTINCT h.hostname) AS hosts
+                LIMIT 10
+            """)
+            gaps = self.run_cypher("""
+                MATCH (h:Host)-[r:HAS_EXECUTABLE]->(:Executable)
+                WITH h, collect(DISTINCT r.source) AS sources, count(r) AS n
+                WHERE n >= 20 AND NOT 'prefetch' IN sources
+                RETURN collect(h.hostname) AS prefetch_gap_hosts
+            """)
+            gap_hosts = gaps[0]["prefetch_gap_hosts"] if gaps else []
+            if wipers or gap_hosts:
+                self._destruction_state = {
+                    "wiper_tools": wipers,
+                    "prefetch_gap_hosts": gap_hosts,
+                }
+            else:
+                self._destruction_state = None
+        except Exception:
+            self._destruction_state = None
+        return self._destruction_state
 
     def _execute_predicate(self, pred: Predicate):
         """Run a single predicate query and evaluate pass/fail.
