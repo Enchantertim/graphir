@@ -51,7 +51,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │                Neo4j 5 Community                              │     │
 │   │                graphir-neo4j (Docker)                          │     │
 │   │                                                                │     │
-│   │  Graph Schema (10 vertex types, 12 edge types):                │     │
+│   │  Graph Schema (11 vertex types, 13 edge types):                │     │
 │   │                                                                │     │
 │   │  (Process)──SPAWNED──>(Process)──ACCESSED──>(Process)          │     │
 │   │    │                    │                     lsass.exe         │     │
@@ -102,7 +102,7 @@ graph TB
     end
     subgraph L3["L3 — EVIDENCE (raw observations)"]
         EVENT[Event]
-        ORIGIN["_origin_* → Plaso JSONL line → disk artifact"]
+        ARTIFACT["Artifact (source file + parser)"]
     end
 
     FINDING -->|SUPPORTED_BY| USER
@@ -118,7 +118,9 @@ graph TB
     EXE -->|SAME_BINARY| FILE
     EXE -->|ENRICHED_BY| TI[ThreatIntel]
     EVENT -->|ON_HOST| HOST
-    EVENT -.->|_origin_source_line| ORIGIN
+    FILE -->|DERIVED_FROM source_line| ARTIFACT
+    EXE -->|DERIVED_FROM source_line| ARTIFACT
+    EVENT -.->|_origin_source_line property| ARTIFACT
 ```
 
 ### Live coverage vs declared schema
@@ -134,6 +136,7 @@ into two honest categories:
 | Host→Host (`CONNECTED_TO`) | live, ~48K | logon src_ip resolution |
 | Host→Executable (`HAS_EXECUTABLE`) | live, ~1.7K | prefetch/amcache/shimcache |
 | Executable→File (`SAME_BINARY`) | built post-ingest | links binary identity to filesystem instance (MACB) |
+| entity→Artifact (`DERIVED_FROM`) | built post-ingest, ~94K | provenance to source file + line (Events keep `_origin_*` props) |
 | Process / `SPAWNED` / `EXECUTED_ON` | **dataset-dependent** | requires 4688/Sysmon; default Win7/XP audit policy doesn't log process creation |
 | `Connection` vertex | **declared, not implemented** | network flow ingestion is roadmap; CONNECTED_TO is Host→Host today |
 | `ThreatIntel` / `ENRICHED_BY` | conditional | only after VT enrichment runs |

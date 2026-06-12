@@ -6,7 +6,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 from neo4j import GraphDatabase
 
-from graphir.graph import init_schema, link_binaries
+from graphir.graph import init_schema, link_binaries, build_artifact_nodes
 from graphir.reconstruct import reconstruct, materialize_findings
 from graphir.temporal_integrity import (
     backfill_record_numbers, summary_query, detail_query,
@@ -216,6 +216,7 @@ def ingest_timeline(path: str, default_hostname: str = "unknown",
         stats = ingester.ingest_file(path, priority_only=priority_only,
                                      max_events=max_events)
         stats["binary_links"] = link_binaries(run_cypher)
+        stats["artifact_provenance"] = build_artifact_nodes(run_cypher)
         return json.dumps(stats, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -260,6 +261,7 @@ def ingest_multi(directory: str, priority_only: bool = True) -> str:
             "total_events": sum(s.get("events_processed", 0) for s in all_stats),
             "total_errors": sum(s.get("errors", 0) for s in all_stats),
             "binary_links": link_binaries(run_cypher),
+            "artifact_provenance": build_artifact_nodes(run_cypher),
             "per_file": all_stats,
         }
         return json.dumps(total, default=str, indent=2)

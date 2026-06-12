@@ -12,6 +12,8 @@ SCHEMA_CONSTRAINTS = [
     "CREATE INDEX IF NOT EXISTS FOR (e:Event) ON (e.event_id)",
     "CREATE INDEX IF NOT EXISTS FOR (x:Executable) ON (x.path)",
     "CREATE INDEX IF NOT EXISTS FOR (c:Correction) ON (c.correction_id)",
+    "CREATE CONSTRAINT IF NOT EXISTS FOR (a:Artifact) REQUIRE a.artifact_id IS UNIQUE",
+    "CREATE INDEX IF NOT EXISTS FOR (fi:Finding) ON (fi.finding_id)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:SPAWNED]-() ON (r.timestamp)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:EXECUTED]-() ON (r.timestamp)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:ACCESSED]-() ON (r.timestamp)",
@@ -30,6 +32,7 @@ VERTEX_TYPES = {
     "Event": ["event_id", "source", "channel", "timestamp", "message", "data"],
     "Correction": ["correction_id", "type", "reason", "original_claim", "corrected_by", "timestamp"],
     "Finding": ["finding_id", "phase", "tactic", "technique", "confidence", "summary", "investigation_id"],
+    "Artifact": ["artifact_id", "path", "parser"],
     "ThreatIntel": ["source", "family", "detections", "total_engines", "detection_rate", "sha256", "first_seen_vt"],
 }
 
@@ -46,6 +49,7 @@ EDGE_TYPES = {
     "ENRICHED_BY": "Executable enriched with threat intelligence (VT, capa, yara)",
     "SAME_BINARY": "Executable (binary identity) is the same binary as File (filesystem instance with MACB)",
     "SUPPORTED_BY": "Finding is evidenced by an entity (L0 investigation layer, written by reconstruct_attack)",
+    "DERIVED_FROM": "Entity was derived from a source Artifact (carries source_line + data_type; L3 evidence provenance)",
 }
 
 
@@ -81,3 +85,54 @@ def link_binaries(run_cypher_fn) -> dict:
                count(DISTINCT f) AS files_linked
     """)
     return result[0] if result else {"executables_linked": 0, "files_linked": 0}
+
+
+# Entity labels linked to their source Artifact. Events are deliberately excluded
+# — they are the bulk (~700K) and already carry _origin_* properties that
+# trace_origin walks; linking them too would roughly double the graph for little
+# audit gain. Substance/behavior entities are what findings reference.
+_ARTIFACT_LINKED_LABELS = ("File", "Executable", "User", "Host", "Process", "Connection")
+
+
+def build_artifact_nodes(run_cypher_fn, batch_size: int = 5000) -> dict:
+    """Promote _origin_artifact provenance to first-class (:Artifact) vertices.
+
+    Creates one Artifact per (source file, parser) and links substance/behavior
+    entities via DERIVED_FROM, carrying the precise source_line and data_type on
+    the edge. This makes "prove this finding" a graph traversal —
+    Finding -[:SUPPORTED_BY]-> entity -[:DERIVED_FROM {source_line}]-> Artifact —
+    instead of a property lookup, completing the L3 (evidence) layer of the
+    schema's fractal. Paged in Python to respect transaction memory; idempotent.
+    """
+    # 1. One Artifact node per distinct (artifact path, parser).
+    run_cypher_fn("""
+        MATCH (n)
+        WHERE n._origin_artifact IS NOT NULL AND n._origin_parser IS NOT NULL
+        WITH DISTINCT n._origin_artifact AS path, n._origin_parser AS parser
+        MERGE (a:Artifact {artifact_id: path + '|' + parser})
+        SET a.path = path, a.parser = parser
+    """)
+
+    # 2. Link entities (paged per label) to their Artifact, source_line on the edge.
+    linked = 0
+    for label in _ARTIFACT_LINKED_LABELS:
+        while True:
+            res = run_cypher_fn(f"""
+                MATCH (n:{label})
+                WHERE n._origin_artifact IS NOT NULL AND n._origin_parser IS NOT NULL
+                  AND NOT (n)-[:DERIVED_FROM]->(:Artifact)
+                WITH n LIMIT $limit
+                MATCH (a:Artifact {{artifact_id: n._origin_artifact + '|' + n._origin_parser}})
+                MERGE (n)-[r:DERIVED_FROM]->(a)
+                SET r.source_line = n._origin_source_line,
+                    r.data_type = n._origin_data_type
+                RETURN count(n) AS n
+            """, {"limit": batch_size})
+            c = res[0]["n"] if res else 0
+            linked += c
+            if c < batch_size:
+                break
+
+    counts = run_cypher_fn("MATCH (a:Artifact) RETURN count(a) AS artifacts")
+    return {"artifacts": counts[0]["artifacts"] if counts else 0,
+            "entities_linked": linked}
