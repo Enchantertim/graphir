@@ -442,7 +442,8 @@ LATERAL_MOVEMENT_PREDICATES = [
         "description": "Authentication edge (LOGGED_ON) exists between user and target host",
         "cypher": """
             MATCH (u:User)-[r:LOGGED_ON]->(h:Host)
-            WHERE u.name = $username AND h.hostname = $target_host
+            WHERE toLower(u.name) = toLower($username)
+              AND toLower(h.hostname) = toLower($target_host)
             RETURN u.name, h.hostname, r.logon_type, r.timestamp, r.src_ip
             LIMIT 10
         """,
@@ -453,7 +454,8 @@ LATERAL_MOVEMENT_PREDICATES = [
         "description": "Logon type is 3/9/10 (Network/NewCredentials/RDP) — not interactive/service/batch. Aggregates all logon types to detect CONTRADICTORY.",
         "cypher": """
             MATCH (u:User)-[r:LOGGED_ON]->(h:Host)
-            WHERE u.name = $username AND h.hostname = $target_host
+            WHERE toLower(u.name) = toLower($username)
+              AND toLower(h.hostname) = toLower($target_host)
             WITH collect(DISTINCT r.logon_type) AS all_types
             WITH all_types,
                  [t IN all_types WHERE t IN [3, 9, 10]] AS matching_types,
@@ -468,7 +470,8 @@ LATERAL_MOVEMENT_PREDICATES = [
         "name": "source_host_connection",
         "description": "Network connection exists from source to target host",
         "cypher": """
-            MATCH (src)-[:CONNECTED_TO]->(dst:Host {hostname: $target_host})
+            MATCH (src)-[:CONNECTED_TO]->(dst:Host)
+            WHERE toLower(dst.hostname) = toLower($target_host)
             RETURN src.hostname AS src_host, src.ip AS src_ip,
                    dst.hostname AS dst_host
             LIMIT 5
@@ -479,8 +482,9 @@ LATERAL_MOVEMENT_PREDICATES = [
         "name": "temporal_plausibility",
         "description": "Logon event timestamp is within plausible investigation window",
         "cypher": """
-            MATCH (u:User)-[r:LOGGED_ON]->(h:Host {hostname: $target_host})
-            WHERE u.name = $username
+            MATCH (u:User)-[r:LOGGED_ON]->(h:Host)
+            WHERE toLower(h.hostname) = toLower($target_host)
+              AND toLower(u.name) = toLower($username)
             WITH r.timestamp AS ts
             ORDER BY ts
             WITH collect(ts) AS timestamps
@@ -498,8 +502,8 @@ PROCESS_CHAIN_PREDICATES = [
         "description": "SPAWNED edge exists from parent to child process",
         "cypher": """
             MATCH (parent:Process)-[:SPAWNED]->(child:Process)
-            WHERE parent.name CONTAINS $parent_name
-              AND child.name CONTAINS $child_name
+            WHERE toLower(parent.name) CONTAINS toLower($parent_name)
+              AND toLower(child.name) CONTAINS toLower($child_name)
             RETURN parent.name, child.name, child.cmdline, child.timestamp
             LIMIT 10
         """,
@@ -510,7 +514,7 @@ PROCESS_CHAIN_PREDICATES = [
         "description": "Child process has EXECUTED_ON edge to a host",
         "cypher": """
             MATCH (p:Process)-[:EXECUTED_ON]->(h:Host)
-            WHERE p.name CONTAINS $child_name
+            WHERE toLower(p.name) CONTAINS toLower($child_name)
             RETURN p.name, h.hostname, p.timestamp
             LIMIT 5
         """,
@@ -521,14 +525,14 @@ PROCESS_CHAIN_PREDICATES = [
         "description": "Execution evidence from multiple sources — checks both Process instances (4688) and Executable binaries (prefetch/amcache/shimcache). NOTE: timestamps across artifact types may have skew (shimcache depends on shutdown, registry keys delay-write) — do not use strict temporal ordering across source types.",
         "cypher": """
             OPTIONAL MATCH (h1:Host)-[:EXECUTED_ON]-(p:Process)
-            WHERE p.name CONTAINS $child_name
+            WHERE toLower(p.name) CONTAINS toLower($child_name)
             WITH collect({type: 'process_4688', name: p.name, ts: p.timestamp}) AS proc_evidence
             OPTIONAL MATCH (h2:Host)-[r:HAS_EXECUTABLE]->(x:Executable)
-            WHERE x.name CONTAINS $child_name
+            WHERE toLower(x.name) CONTAINS toLower($child_name)
             WITH proc_evidence, collect({type: r.source, name: x.name, hash: x.sha1, ts: x.first_seen}) AS exec_evidence
             WITH proc_evidence + exec_evidence AS all_evidence
             UNWIND all_evidence AS e
-            WHERE e.name IS NOT NULL
+            WITH e WHERE e.name IS NOT NULL
             RETURN e.type AS source, e.name AS name, e.ts AS timestamp, e.hash AS hash
             ORDER BY e.ts
         """,
@@ -542,8 +546,8 @@ CREDENTIAL_ACCESS_PREDICATES = [
         "description": "Process has ACCESSED edge to lsass.exe",
         "cypher": """
             MATCH (p:Process)-[:ACCESSED]->(target:Process)
-            WHERE p.name CONTAINS $process_name
-              AND target.name = 'lsass.exe'
+            WHERE toLower(p.name) CONTAINS toLower($process_name)
+              AND toLower(target.name) = 'lsass.exe'
             RETURN p.name, p.cmdline, p.timestamp,
                    p._origin_data_type AS origin
             LIMIT 5
@@ -554,9 +558,10 @@ CREDENTIAL_ACCESS_PREDICATES = [
         "name": "non_system_accessor",
         "description": "Accessing process is NOT a known system process",
         "cypher": """
-            MATCH (p:Process)-[:ACCESSED]->(target:Process {name: 'lsass.exe'})
-            WHERE p.name CONTAINS $process_name
-              AND NOT p.name IN ['svchost.exe', 'csrss.exe', 'services.exe',
+            MATCH (p:Process)-[:ACCESSED]->(target:Process)
+            WHERE toLower(target.name) = 'lsass.exe'
+              AND toLower(p.name) CONTAINS toLower($process_name)
+              AND NOT toLower(p.name) IN ['svchost.exe', 'csrss.exe', 'services.exe',
                                   'wininit.exe', 'lsass.exe']
             RETURN p.name, p.user
             LIMIT 5
@@ -568,14 +573,14 @@ CREDENTIAL_ACCESS_PREDICATES = [
         "description": "Credential tool has execution evidence — checks Process instances and Executable binaries",
         "cypher": """
             OPTIONAL MATCH (p:Process)
-            WHERE p.name CONTAINS $process_name
+            WHERE toLower(p.name) CONTAINS toLower($process_name)
             WITH collect({type: 'process', name: p.name, ts: p.timestamp}) AS procs
             OPTIONAL MATCH (x:Executable)
-            WHERE x.name CONTAINS $process_name
+            WHERE toLower(x.name) CONTAINS toLower($process_name)
             WITH procs, collect({type: 'executable', name: x.name, hash: x.sha1, ts: x.first_seen}) AS execs
             WITH procs + execs AS evidence
             UNWIND evidence AS e
-            WHERE e.name IS NOT NULL
+            WITH e WHERE e.name IS NOT NULL
             RETURN e
         """,
         "required": False,
@@ -589,10 +594,10 @@ PERSISTENCE_SERVICE_PREDICATES = [
         "cypher": """
             MATCH (e:Event)-[:ON_HOST]->(h:Host)
             WHERE e.event_id IN [7045, 4697, 'registry_service']
-              AND (e.service_name = $service_name
-                   OR e.service_name CONTAINS $service_name
-                   OR e.service_path CONTAINS $service_name
-                   OR h.hostname CONTAINS $service_name)
+              AND (toLower(e.service_name) = toLower($service_name)
+                   OR toLower(e.service_name) CONTAINS toLower($service_name)
+                   OR toLower(e.service_path) CONTAINS toLower($service_name)
+                   OR toLower(h.hostname) CONTAINS toLower($service_name))
             RETURN e.event_id, e.service_name, e.service_path,
                    h.hostname AS host, e.timestamp,
                    e._origin_data_type AS origin
@@ -605,14 +610,14 @@ PERSISTENCE_SERVICE_PREDICATES = [
         "description": "Service binary has execution or file evidence in graph",
         "cypher": """
             OPTIONAL MATCH (h:Host)-[r:EXECUTED]->(p:Process)
-            WHERE p.name CONTAINS $service_name OR p.path CONTAINS $service_name
+            WHERE toLower(p.name) CONTAINS toLower($service_name) OR toLower(p.path) CONTAINS toLower($service_name)
             WITH collect({name: p.name, path: p.path, source: r.source, ts: r.timestamp}) AS procs
             OPTIONAL MATCH (f:File)
-            WHERE f.name CONTAINS $service_name OR f.path CONTAINS $service_name
+            WHERE toLower(f.name) CONTAINS toLower($service_name) OR toLower(f.path) CONTAINS toLower($service_name)
             WITH procs, collect({name: f.name, path: f.path}) AS files
             WITH procs + files AS evidence
             UNWIND evidence AS e
-            WHERE e.name IS NOT NULL
+            WITH e WHERE e.name IS NOT NULL
             RETURN e
             LIMIT 5
         """,
@@ -623,8 +628,9 @@ PERSISTENCE_SERVICE_PREDICATES = [
         "description": "Service install occurred within a bounded window after a logon (default 14 days — APTs may dwell for days before persistence)",
         "cypher": """
             MATCH (e:Event)-[:ON_HOST]->(h:Host)
-            WHERE (e.service_name = $service_name OR e.service_name CONTAINS $service_name
-                   OR e.service_path CONTAINS $service_name)
+            WHERE (toLower(e.service_name) = toLower($service_name)
+                   OR toLower(e.service_name) CONTAINS toLower($service_name)
+                   OR toLower(e.service_path) CONTAINS toLower($service_name))
               AND e.event_id IN [7045, 4697, 'registry_service']
             WITH min(e.timestamp) AS service_ts
             MATCH (u:User)-[r:LOGGED_ON]->(h2:Host)
