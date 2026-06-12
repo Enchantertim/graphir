@@ -51,7 +51,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │                Neo4j 5 Community                              │     │
 │   │                graphir-neo4j (Docker)                          │     │
 │   │                                                                │     │
-│   │  Graph Schema (8 vertex types, 9 edge types):                  │     │
+│   │  Graph Schema (10 vertex types, 12 edge types):                │     │
 │   │                                                                │     │
 │   │  (Process)──SPAWNED──>(Process)──ACCESSED──>(Process)          │     │
 │   │    │                    │                     lsass.exe         │     │
@@ -66,7 +66,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │  LOGGED_ON  (Executable) ← prefetch/amcache/shimcache          │     │
 │   │    │         (per-binary, not per-instance)                     │     │
 │   │    ▼                                                            │     │
-│   │  (User)──LOGGED_ON──>(Host)──CONNECTED_TO──>(Connection)       │     │
+│   │  (User)──LOGGED_ON──>(Host)──CONNECTED_TO──>(Host)             │     │
 │   │                                                                │     │
 │   │  (Correction)──CORRECTS──>(any entity)                         │     │
 │   │                                                                │     │
@@ -77,6 +77,71 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   └────────────────────────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+## Graph Schema — Visual
+
+The schema is fractal: the same shape repeats at every zoom level — nodes,
+relationships between them, and provenance edges pointing one level down.
+An investigator should be able to zoom from the incident narrative to the
+raw artifact line without leaving the graph.
+
+```mermaid
+graph TB
+    subgraph L0["L0 — INVESTIGATION (the analyst's mental model)"]
+        FINDING[Finding]
+        CORRECTION[Correction]
+    end
+    subgraph L1["L1 — BEHAVIOR (what happened)"]
+        USER[User]
+        PROCESS[Process]
+    end
+    subgraph L2["L2 — SUBSTANCE (what exists)"]
+        HOST[Host]
+        EXE[Executable]
+        FILE[File]
+    end
+    subgraph L3["L3 — EVIDENCE (raw observations)"]
+        EVENT[Event]
+        ORIGIN["_origin_* → Plaso JSONL line → disk artifact"]
+    end
+
+    FINDING -->|SUPPORTED_BY| USER
+    FINDING -->|SUPPORTED_BY| EXE
+    CORRECTION -->|CORRECTS| PROCESS
+    USER -->|LOGGED_ON logon_type,ts| HOST
+    PROCESS -->|SPAWNED| PROCESS
+    PROCESS -->|EXECUTED_ON| HOST
+    PROCESS -->|ACCESSED| PROCESS
+    HOST -->|CONNECTED_TO| HOST
+    HOST -->|HAS_EXECUTABLE src| EXE
+    HOST -->|MODIFIED / ACCESSED| FILE
+    EXE -->|SAME_BINARY| FILE
+    EXE -->|ENRICHED_BY| TI[ThreatIntel]
+    EVENT -->|ON_HOST| HOST
+    EVENT -.->|_origin_source_line| ORIGIN
+```
+
+### Live coverage vs declared schema
+
+Not every declared element exists in every investigation — and the gaps split
+into two honest categories:
+
+| Element | Status | Why |
+|---------|--------|-----|
+| Event→Host (`ON_HOST`) | live, ~737K (SANS 508) | every event |
+| Host→File (`MODIFIED`/`ACCESSED`) | live, ~543K | fs:stat MACB |
+| User→Host (`LOGGED_ON`) | live, ~190K | 4624/4625 |
+| Host→Host (`CONNECTED_TO`) | live, ~48K | logon src_ip resolution |
+| Host→Executable (`HAS_EXECUTABLE`) | live, ~1.7K | prefetch/amcache/shimcache |
+| Executable→File (`SAME_BINARY`) | built post-ingest | links binary identity to filesystem instance (MACB) |
+| Process / `SPAWNED` / `EXECUTED_ON` | **dataset-dependent** | requires 4688/Sysmon; default Win7/XP audit policy doesn't log process creation |
+| `Connection` vertex | **declared, not implemented** | network flow ingestion is roadmap; CONNECTED_TO is Host→Host today |
+| `ThreatIntel` / `ENRICHED_BY` | conditional | only after VT enrichment runs |
+| `Finding` / `SUPPORTED_BY` | materialized by reconstruct_attack | completes the L0 layer |
+
+A predicate that depends on a dataset-dependent layer (e.g. `spawned_edge_exists`
+on a host without 4688 auditing) will return ABSENT_DATA — this is the
+"absence is ambiguous" limitation in VERIFICATION.md, visible at schema level.
 
 ## Trust Boundaries
 

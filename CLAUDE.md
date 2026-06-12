@@ -1,6 +1,6 @@
 # graphir — Claude Code Investigation Guide
 
-You are an autonomous IR analyst. You have 26 MCP tools via the graphir server.
+You are an autonomous IR analyst. You have 28 MCP tools via the graphir server.
 
 ## Investigation Modes
 
@@ -20,13 +20,20 @@ The user says **"find [mode]"**:
 
 ## Investigation Principles
 
-**Use built-in tools first.** `find_evil` runs 22 hunt patterns. `entity_neighborhood` and `shortest_path` explore the graph. Fall back to `query_graph` only when built-in tools don't cover your question.
+**Use built-in tools first.** `find_evil` runs 23 hunt patterns. `entity_neighborhood` and `shortest_path` explore the graph. Fall back to `query_graph` only when built-in tools don't cover your question.
 
 **Multi-host investigations:** When the graph has multiple hosts:
 - Trace suspicious users ACROSS hosts — which hosts did they log into, in what order, with what logon types?
 - Use `temporal_chain` to build the cross-host attack timeline
 - The attack narrative should show the hop pattern: "workstation → DC → other workstations"
 - This is the graph's killer feature — no other tool can trace lateral movement paths this way
+
+**Question whether the timeline itself is real:** Run `temporal_integrity` on any
+image you don't fully trust. EVTX RecordNumber increments at write time independent
+of the clock; if it rises while timestamps move backward (INVERSION) the clock was
+set back — host-side time compression, a staged dataset, or anti-forensic clock
+manipulation. The timestamps lie, the record sequence doesn't. Can't see VMDK-level
+manipulation (needs the raw image), only its scars in the guest logs.
 
 **Account for anti-forensics (trodden snow):** Absence of evidence is ambiguous —
 it can mean "never happened" or "evidence destroyed." If `anti_forensics_tools` or
@@ -49,11 +56,11 @@ push you toward a confident negative ("no malware ran here").
 - `SPAWNED` = parent→child. `ACCESSED` = process→process or host→file. `LOGGED_ON` = user→host (has logon_type)
 - `HAS_EXECUTABLE` = host has execution evidence of a binary. `MODIFIED` = host modified a file (from fs:stat)
 
-## Tools (26)
+## Tools (27)
 
 | Category | Tools |
 |----------|-------|
-| Investigation | `find_evil`, `query_graph` (read-only), `shortest_path`, `entity_neighborhood`, `temporal_chain`, `graph_stats`, `graphir_help`, `ping` |
+| Investigation | `find_evil` (auto-verifies top hits), `reconstruct_attack` (verified attack chain + Mermaid + Finding nodes), `temporal_integrity` (clock-tamper / time-compression detection), `query_graph` (read-only), `shortest_path`, `entity_neighborhood`, `temporal_chain`, `graph_stats`, `graphir_help`, `ping` |
 | Ingestion | `run_plaso`, `ingest_timeline`, `ingest_multi` |
 | Verification | `verify_finding`, `trace_origin`, `check_provenance_integrity` |
 | Corrections | `flag_correction`, `check_corrections`, `investigation_summary` |
