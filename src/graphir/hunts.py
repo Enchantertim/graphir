@@ -10,6 +10,8 @@ Each hunt has:
 Add new hunts here. server.py loads them automatically.
 """
 
+from graphir.temporal_integrity import detail_query, summary_query
+
 HUNT_QUERIES = {
     "suspicious_process_chain": {
         "description": "Suspicious process ancestry chains (variable-length, includes WMI)",
@@ -693,5 +695,17 @@ HUNT_QUERIES = {
         """,
         "tactic": "Defense Evasion",
         "technique": "T1070",
+    },
+    "clock_tampering": {
+        "description": "Clock tampering / time compression: EVTX RecordNumber increases "
+                       "(true write order) while the timestamp moves backward >60s within a "
+                       "provider channel — near-impossible without the clock being set back. "
+                       "Headline signal is INVERSION; FORWARD_JUMP (large forward gaps) is "
+                       "supporting only (sparse channels gap naturally). Needs record_number "
+                       "(the temporal_integrity tool backfills it on older graphs).",
+        "query": detail_query(),
+        "summarize_query": summary_query(),
+        "tactic": "Defense Evasion",
+        "technique": "T1070.006",
     },
 }
