@@ -191,6 +191,53 @@ class InvestigationLog:
             "self_corrections": len(self_corrections),
         }
 
+    def get_milestones(self, max_items: int = 12) -> list[dict]:
+        """Curated milestone view of the investigation — the demo narrative.
+
+        The raw JSONL is the audit trail; this is the presentation layer.
+        Selects the entries that tell the story: ingestion, confirmed findings,
+        verification downgrades (the trust model refusing a claim), and every
+        correction/self-correction. Skips the tool-call firehose.
+        """
+        milestones = []
+        for e in self.entries:
+            etype = e["entry_type"]
+            data = e.get("data", {})
+            if etype == "ingestion":
+                text = e["detail"]
+            elif etype == "finding" and data.get("confidence") == "CONFIRMED":
+                technique = f" [{data['technique']}]" if data.get("technique") else ""
+                text = f"CONFIRMED{technique}: {e['detail']}"
+            elif etype == "verification" and data.get("confidence") == "INSUFFICIENT_EVIDENCE":
+                failed = ", ".join(data.get("predicates_failed", [])) or "no predicates passed"
+                text = f"REFUSED TO CONFIRM ({failed}): {e['detail']}"
+            elif etype in ("correction", "self_correction"):
+                text = f"SELF-CORRECTION: {e['detail']}"
+            else:
+                continue
+            milestones.append({
+                "elapsed_s": e.get("elapsed_s", 0),
+                "type": etype,
+                "text": text,
+            })
+
+        if len(milestones) <= max_items:
+            return milestones
+        # Corrections and refusals are the demo-critical entries — never drop them
+        critical = [m for m in milestones
+                    if m["type"] in ("correction", "self_correction")
+                    or m["text"].startswith("REFUSED")]
+        rest = [m for m in milestones if m not in critical]
+        kept = critical + rest[:max(0, max_items - len(critical))]
+        return sorted(kept, key=lambda m: m["elapsed_s"])
+
+    def format_milestones(self, max_items: int = 12) -> str:
+        """Render milestones as terminal-friendly lines for the demo screencast."""
+        lines = [f"=== Investigation {self.investigation_id} — key milestones ==="]
+        for m in self.get_milestones(max_items):
+            lines.append(f"[+{m['elapsed_s']:>7.1f}s] {m['text']}")
+        return "\n".join(lines)
+
     def to_json(self) -> str:
         """Export full log as JSON array."""
         return json.dumps(self.entries, indent=2, default=str)

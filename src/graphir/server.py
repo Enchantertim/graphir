@@ -691,11 +691,16 @@ def investigation_summary() -> str:
     """Get a summary of the current investigation session.
 
     Returns: total log entries, findings by confidence, verification count,
-    corrections count, self-corrections count, and elapsed time.
+    corrections count, self-corrections count, elapsed time, and a curated
+    `milestones` list — the 5-12 entries that tell the investigation story
+    (ingestion, CONFIRMED findings, verification refusals, self-corrections).
+    Present the milestones to the user when narrating investigation progress;
+    the full JSONL log remains the audit trail.
 
     Use this to get an overview of what the investigation has done so far.
     """
     summary = _investigation_log.get_summary()
+    summary["milestones"] = _investigation_log.get_milestones()
 
     # Also get graph-level correction summary
     try:
