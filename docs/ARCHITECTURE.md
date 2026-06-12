@@ -71,7 +71,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │  (Correction)──CORRECTS──>(any entity)                         │     │
 │   │                                                                │     │
 │   │  Every entity carries _origin_* metadata                       │     │
-│   │  Constraints: Host.hostname, User.sid, Executable.name UNIQUE  │     │
+│   │  Constraints: Host.hostname, User.sid, Executable.path UNIQUE  │     │
 │   │  Indexes: Process(name), Process(pid,ts), File(path),          │     │
 │   │           Executable(path), Correction(id), all temporal edges │     │
 │   └────────────────────────────────────────────────────────────────┘     │
@@ -124,7 +124,7 @@ ingest_timeline (MCP tool)
     ▼
 Neo4j Investigation Graph
     │
-    ├── find_evil() ─── hunt patterns (5+ structural queries)
+    ├── find_evil() ─── hunt patterns (22 structural queries)
     ├── query_graph() ── ad-hoc Cypher from agent reasoning
     ├── shortest_path() ── attack chain tracing
     ├── temporal_chain() ── time-windowed activity
@@ -170,7 +170,7 @@ and the artifact was completely severed.
 
 **Solution:** Two separate node types.
 - `Process` — per-instance, created with `CREATE`. Every 4688 event = new node.
-- `Executable` — per-binary, created with `MERGE` on name. One node per binary file.
+- `Executable` — per-binary, created with `MERGE` on path. One node per binary file.
   Prefetch, amcache, shimcache connect here via `HAS_EXECUTABLE` edges.
 
 ### Super-Node Exclusion in Path Traversal

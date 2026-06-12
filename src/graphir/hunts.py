@@ -610,4 +610,88 @@ HUNT_QUERIES = {
         "tactic": "Execution",
         "technique": "T1204",
     },
+    "anti_forensics_tools": {
+        "description": "Evidence-destruction tooling (CCleaner, SDelete, BleachBit, wevtutil, "
+                       "journal deletion). The wiper destroys other artifacts but leaves its own "
+                       "execution evidence in shimcache/amcache, which survive cleaning. Presence "
+                       "of these tools means absence of evidence elsewhere is NOT evidence of "
+                       "absence — cross-check with the evidence_gaps hunt.",
+        "query": """
+            OPTIONAL MATCH (h1:Host)-[r:HAS_EXECUTABLE]->(x:Executable)
+            WHERE any(t IN ['ccleaner', 'bleachbit', 'sdelete', 'eraser', 'privazer',
+                            'cleanafterme', 'evidence eliminator', 'wipe.exe']
+                      WHERE toLower(x.name) CONTAINS t OR toLower(x.path) CONTAINS t)
+            WITH collect({kind: 'executable', name: x.name, path: x.path,
+                          host: h1.hostname, source: r.source}) AS exes
+            OPTIONAL MATCH (p:Process)
+            WHERE any(t IN ['ccleaner', 'bleachbit', 'sdelete', 'eraser', 'privazer']
+                      WHERE toLower(p.name) CONTAINS t)
+               OR toLower(p.cmdline) CONTAINS 'deletejournal'
+               OR toLower(p.cmdline) CONTAINS 'wevtutil cl'
+               OR toLower(p.cmdline) CONTAINS 'cipher /w'
+            WITH exes, collect({kind: 'process', name: p.name, cmdline: p.cmdline,
+                                ts: p.timestamp}) AS procs
+            UNWIND exes + procs AS e
+            WITH e WHERE e.name IS NOT NULL
+            RETURN e.kind AS kind, e.name AS name, e.path AS path,
+                   e.host AS host, e.source AS source,
+                   e.cmdline AS cmdline, e.ts AS ts
+            LIMIT 100
+        """,
+        "summarize_query": """
+            OPTIONAL MATCH (h1:Host)-[r:HAS_EXECUTABLE]->(x:Executable)
+            WHERE any(t IN ['ccleaner', 'bleachbit', 'sdelete', 'eraser', 'privazer',
+                            'cleanafterme', 'evidence eliminator', 'wipe.exe']
+                      WHERE toLower(x.name) CONTAINS t OR toLower(x.path) CONTAINS t)
+            WITH collect({name: x.name, host: h1.hostname, source: r.source}) AS exes
+            OPTIONAL MATCH (p:Process)
+            WHERE any(t IN ['ccleaner', 'bleachbit', 'sdelete', 'eraser', 'privazer']
+                      WHERE toLower(p.name) CONTAINS t)
+               OR toLower(p.cmdline) CONTAINS 'deletejournal'
+               OR toLower(p.cmdline) CONTAINS 'wevtutil cl'
+               OR toLower(p.cmdline) CONTAINS 'cipher /w'
+            WITH exes, collect({name: p.name, host: 'process_event'}) AS procs
+            UNWIND exes + procs AS e
+            WITH e WHERE e.name IS NOT NULL
+            RETURN e.name AS tool, collect(DISTINCT e.host) AS hosts,
+                   collect(DISTINCT e.source) AS evidence_sources, count(*) AS occurrences
+            ORDER BY occurrences DESC
+            LIMIT 20
+        """,
+        "tactic": "Defense Evasion",
+        "technique": "T1070.004",
+    },
+    "evidence_gaps": {
+        "description": "Negative-space detection — hosts whose artifact coverage is missing an "
+                       "expected evidence class (e.g. shimcache/amcache execution evidence but "
+                       "ZERO prefetch). Trodden snow: wiped prefetch is itself a signal. "
+                       "CAVEAT before claiming anti-forensics: prefetch is disabled by default "
+                       "on Windows Server and sometimes on SSDs/VDI — corroborate with the "
+                       "anti_forensics_tools and log_clearing hunts before concluding wiping.",
+        "query": """
+            MATCH (h:Host)-[r:HAS_EXECUTABLE]->(:Executable)
+            WITH h, collect(DISTINCT r.source) AS sources, count(r) AS exec_evidence
+            WHERE exec_evidence >= 20 AND NOT 'prefetch' IN sources
+            OPTIONAL MATCH (e:Event)-[:ON_HOST]->(h)
+            WHERE e.event_id IN [1102, 104]
+            RETURN h.hostname AS host, sources AS evidence_sources,
+                   exec_evidence AS execution_records,
+                   count(e) AS log_clear_events,
+                   'prefetch absent despite execution evidence' AS gap
+            ORDER BY exec_evidence DESC
+            LIMIT 50
+        """,
+        "summarize_query": """
+            MATCH (h:Host)-[r:HAS_EXECUTABLE]->(:Executable)
+            WITH h, collect(DISTINCT r.source) AS sources, count(r) AS exec_evidence
+            WITH h, sources, exec_evidence,
+                 (exec_evidence >= 20 AND NOT 'prefetch' IN sources) AS prefetch_gap
+            RETURN h.hostname AS host, sources AS evidence_sources,
+                   exec_evidence AS execution_records, prefetch_gap
+            ORDER BY prefetch_gap DESC, exec_evidence DESC
+            LIMIT 30
+        """,
+        "tactic": "Defense Evasion",
+        "technique": "T1070",
+    },
 }

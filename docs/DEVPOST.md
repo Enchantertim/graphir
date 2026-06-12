@@ -12,7 +12,7 @@ An investigation tool that reports "insufficient evidence" is more valuable than
 
 ## How we built it
 
-**MCP Server (Python):** 21 typed tools exposed to Claude Code via the Model Context Protocol. Investigation tools (find_evil with 19 hunt patterns, query_graph, shortest_path, entity_neighborhood, temporal_chain), ingestion tools (ingest_timeline, ingest_multi for multi-host), verification tools (verify_finding, trace_origin, check_provenance_integrity), correction tools (flag_correction, check_corrections), and output generators (Sigma rules, ATT&CK Navigator, evidence chain, audit report).
+**MCP Server (Python):** 26 typed tools exposed to Claude Code via the Model Context Protocol. Investigation tools (find_evil with 22 hunt patterns, query_graph, shortest_path, entity_neighborhood, temporal_chain), ingestion tools (run_plaso, ingest_timeline, ingest_multi for multi-host), verification tools (verify_finding, trace_origin, check_provenance_integrity), correction tools (flag_correction, check_corrections), enrichment tools (lookup_hash, enrich_executables), and output generators (Sigma rules, ATT&CK Navigator, evidence chain, audit report, investigative report MD/PDF/DOCX).
 
 graphir is a custom MCP server implementing **architectural approach #2** from the hackathon guidelines, providing typed forensic functions as an alternative to Protocol SIFT's shell-based tool surface.
 

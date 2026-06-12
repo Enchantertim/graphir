@@ -339,6 +339,58 @@ The `VerificationEngine` provides two verification strategies:
 
 Both delegate to the same mechanical `AtomicClaim.evaluate()` method. The difference is how many claims feed into the Finding.
 
+## Known Limitations
+
+We document these deliberately. A verification architecture that hides its own
+boundaries would contradict its purpose.
+
+**1. Independence is bounded by the shared ingestion path.** Path 2's predicates
+are independent of the LLM's *reasoning* — they check prerequisites the model
+didn't explicitly consider. They are not independent of the *evidence pipeline*:
+the graph the predicates query was built by the same Plaso parse the LLM's
+inference ultimately rests on. A parser bug or a missing artifact affects both
+paths. Verification here means structural consistency against independently
+checked prerequisites, not corroboration from a second evidence source. The
+`_origin_*` provenance fields exist precisely so an auditor can take any
+predicate result back to the raw artifact and judge the parse itself.
+
+**2. Predicates are structural, not semantic.** A predicate confirms that
+required graph structure exists (an authentication edge, a causal timestamp
+order, a bounded temporal window). It does not perform full interval logic or
+environment-noise modelling — a Type 3 logon edge passing `network_logon_type`
+can still be benign admin activity. This is why predicate passes produce
+CONFIRMED only in combination (intact chain + all predicates + no
+contradictions), and why CONFIRMED means "structurally supported," not
+"adjudicated true."
+
+**3. Absence of evidence is ambiguous under anti-forensics.** A failed
+`ABSENT_DATA` predicate means the graph contains no structural support for the
+claim — it cannot distinguish "this never happened" from "this happened and the
+evidence was destroyed." When a wiping tool runs (CCleaner, SDelete, BCWipe),
+prefetch entries, temp files, and event logs disappear, and with them the edges
+the predicates check. The system handles this in three ways. First, the failure
+mode is fail-safe: destroyed evidence biases the verifier toward
+INSUFFICIENT_EVIDENCE — it can suppress a true finding, but it can never
+manufacture a false CONFIRMED. Second, the `anti_forensics_tools` hunt detects
+the wiper itself via shimcache/amcache, which survive standard cleaning — the
+wiper destroys other artifacts but not its own execution evidence. Third, the
+`evidence_gaps` hunt does negative-space detection: a host with hundreds of
+shimcache execution records and zero prefetch is itself an anomaly worth
+reporting. When these hunts fire, the agent should treat INSUFFICIENT_EVIDENCE
+verdicts on that host as "unprovable, possibly destroyed" rather than "absent,"
+and say so in the report.
+
+**4. Correction edges target entities; claim context is properties, not structure.**
+`flag_correction` materialises a Correction node whose CORRECTS edge points at
+the affected graph entity, while the corrected *assertion* lives in node
+properties (`original_claim`, `finding_id`, `investigation_id`). Lookup is
+claim-aware — `check_corrections` matches both the entity link and the
+original_claim text — so a previously rejected assertion is found even when the
+entity link failed to resolve. The remaining gap is structural: claims are not
+themselves graph nodes, so you cannot traverse from a claim to the evidence it
+cited. Materialising claims as first-class vertices is the natural next
+iteration of this model.
+
 ## Why This Wins
 
 Most hackathon submissions will verify findings by asking the LLM to re-read its own output. That is self-confirmation, not verification.
