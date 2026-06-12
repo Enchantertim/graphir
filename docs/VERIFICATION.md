@@ -380,16 +380,18 @@ reporting. When these hunts fire, the agent should treat INSUFFICIENT_EVIDENCE
 verdicts on that host as "unprovable, possibly destroyed" rather than "absent,"
 and say so in the report.
 
-**4. Correction edges target entities; claim context is properties, not structure.**
-`flag_correction` materialises a Correction node whose CORRECTS edge points at
-the affected graph entity, while the corrected *assertion* lives in node
-properties (`original_claim`, `finding_id`, `investigation_id`). Lookup is
-claim-aware — `check_corrections` matches both the entity link and the
-original_claim text — so a previously rejected assertion is found even when the
-entity link failed to resolve. The remaining gap is structural: claims are not
-themselves graph nodes, so you cannot traverse from a claim to the evidence it
-cited. Materialising claims as first-class vertices is the natural next
-iteration of this model.
+**4. Corrections can target the assertion, not just the entity.** Atomic claims
+are now first-class graph vertices: `verify_finding(materialize=True)` writes a
+(:Claim) node per claim — confidence, passed/failed predicates, and ABOUT edges
+to the entities it concerns — and `flag_correction(claim_id=...)` points the
+Correction's CORRECTS edge at that Claim. So the corrected *thing* is the
+assertion (Correction → Claim → ABOUT → entity), closing the gap between the
+verification model (which reasons in claims) and the correction model. Lookup is
+also claim-aware: `check_corrections` matches the entity link and the
+original_claim text, finding a rejected assertion even when its entity link
+failed to resolve. Materialisation is opt-in (default off) so exploratory
+verify_finding calls don't flood the graph — the same discipline applied to
+Correction nodes.
 
 ## Why This Wins
 

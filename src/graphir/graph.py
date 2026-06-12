@@ -15,6 +15,7 @@ SCHEMA_CONSTRAINTS = [
     "CREATE CONSTRAINT IF NOT EXISTS FOR (a:Artifact) REQUIRE a.artifact_id IS UNIQUE",
     "CREATE INDEX IF NOT EXISTS FOR (fi:Finding) ON (fi.finding_id)",
     "CREATE CONSTRAINT IF NOT EXISTS FOR (inc:Incident) REQUIRE inc.incident_id IS UNIQUE",
+    "CREATE CONSTRAINT IF NOT EXISTS FOR (cl:Claim) REQUIRE cl.claim_id IS UNIQUE",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:SPAWNED]-() ON (r.timestamp)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:EXECUTED]-() ON (r.timestamp)",
     "CREATE INDEX IF NOT EXISTS FOR ()-[r:ACCESSED]-() ON (r.timestamp)",
@@ -35,6 +36,7 @@ VERTEX_TYPES = {
     "Finding": ["finding_id", "phase", "tactic", "technique", "confidence", "summary", "investigation_id"],
     "Artifact": ["artifact_id", "path", "parser"],
     "Incident": ["incident_id", "name", "actor"],
+    "Claim": ["claim_id", "statement", "confidence", "tactic", "technique", "predicates_passed", "predicates_failed"],
     "ThreatIntel": ["source", "family", "detections", "total_engines", "detection_rate", "sha256", "first_seen_vt"],
 }
 
@@ -47,12 +49,13 @@ EDGE_TYPES = {
     "MODIFIED": "Process modified a File or Registry key",
     "HAS_EXECUTABLE": "Host has evidence of an Executable (prefetch/amcache/shimcache)",
     "ON_HOST": "Event occurred on a Host",
-    "CORRECTS": "Correction applies to an entity",
     "ENRICHED_BY": "Executable enriched with threat intelligence (VT, capa, yara)",
     "SAME_BINARY": "Executable (binary identity) is the same binary as File (filesystem instance with MACB)",
     "SUPPORTED_BY": "Finding is evidenced by an entity (L0 investigation layer, written by reconstruct_attack)",
     "DERIVED_FROM": "Entity was derived from a source Artifact (carries source_line + data_type; L3 evidence provenance)",
     "PART_OF": "Finding belongs to an Incident (L0+ campaign layer; groups findings across an investigation / case)",
+    "ABOUT": "Claim concerns an entity (the atomic assertion's subject)",
+    "CORRECTS": "Correction applies to an entity OR a Claim (the corrected assertion)",
 }
 
 

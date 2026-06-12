@@ -27,10 +27,60 @@ Schema:
   (correction)-[:DURING]->(investigation)  -- links to investigation session
 """
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
+
+
+def claim_id_for(statement: str, primary: str, target: str = "") -> str:
+    """Deterministic claim id so materialization + correction targeting are stable."""
+    return hashlib.sha1(f"{statement}|{primary}|{target}".encode()).hexdigest()[:12]
+
+
+def record_claims(run_cypher, finding, primary_entity: str,
+                  target_entity: str = "", investigation_id: str = "") -> list[dict]:
+    """Materialize a verified finding's atomic claims as (:Claim) vertices.
+
+    Closes the "corrections target entities, not assertions" gap: a Claim is the
+    atomic assertion, linked via ABOUT to the entities it concerns. flag_correction
+    can then point a Correction at the Claim (the corrected thing), and the claim's
+    confidence + predicate outcomes are queryable structure, not just log text.
+    Idempotent on a deterministic claim_id.
+    """
+    written = []
+    for claim in finding.claims:
+        statement = claim.statement or finding.narrative
+        cid = claim_id_for(statement, primary_entity, target_entity)
+        passed = [p.name for p in claim.predicates if p.passed is True]
+        failed = [p.name for p in claim.predicates if p.passed is False]
+        confidence = getattr(claim.confidence, "value", str(claim.confidence))
+        run_cypher("""
+            MERGE (cl:Claim {claim_id: $cid})
+            SET cl.statement = $stmt, cl.confidence = $conf,
+                cl.tactic = $tactic, cl.technique = $technique,
+                cl.predicates_passed = $passed, cl.predicates_failed = $failed,
+                cl.investigation_id = $inv, cl._origin_tool = 'verify_finding'
+            WITH cl
+            OPTIONAL MATCH (e) WHERE e.name = $primary OR e.hostname = $primary
+                                  OR e.service_name = $primary
+            FOREACH (_ IN CASE WHEN e IS NULL THEN [] ELSE [1] END |
+                MERGE (cl)-[:ABOUT]->(e))
+            WITH cl
+            OPTIONAL MATCH (t) WHERE $target <> '' AND
+                (t.name = $target OR t.hostname = $target OR t.service_name = $target)
+            FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END |
+                MERGE (cl)-[:ABOUT]->(t))
+        """, {
+            "cid": cid, "stmt": statement, "conf": confidence,
+            "tactic": claim.tactic, "technique": claim.technique,
+            "passed": passed, "failed": failed,
+            "inv": investigation_id, "primary": primary_entity, "target": target_entity,
+        })
+        written.append({"claim_id": cid, "statement": statement,
+                        "confidence": confidence})
+    return written
 
 
 class CorrectionType(str, Enum):
@@ -59,7 +109,8 @@ def record_correction(run_cypher, correction_type: str, reason: str,
                       corrected_confidence: str = "INSUFFICIENT_EVIDENCE",
                       divergence_data: dict | None = None,
                       investigation_id: str = "",
-                      finding_id: str = "") -> dict:
+                      finding_id: str = "",
+                      claim_id: str = "") -> dict:
     """Record a correction as a first-class node in the graph.
 
     Creates a Correction node and links it to the relevant entity via
@@ -128,6 +179,11 @@ def record_correction(run_cypher, correction_type: str, reason: str,
         FOREACH (_ IN CASE WHEN target IS NOT NULL THEN [1] ELSE [] END |
             CREATE (c)-[:CORRECTS {timestamp: datetime($ts)}]->(target)
         )
+        WITH c
+        OPTIONAL MATCH (cl:Claim {claim_id: $claim_id})
+        FOREACH (_ IN CASE WHEN cl IS NOT NULL THEN [1] ELSE [] END |
+            CREATE (c)-[:CORRECTS {timestamp: datetime($ts)}]->(cl)
+        )
         RETURN c.correction_id AS id
     """
 
@@ -144,6 +200,7 @@ def record_correction(run_cypher, correction_type: str, reason: str,
         "divergence_json": json.dumps(divergence_data or {}, default=str),
         "finding_id": finding_id,
         "investigation_id": investigation_id,
+        "claim_id": claim_id,
     }
 
     try:

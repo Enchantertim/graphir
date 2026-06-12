@@ -51,7 +51,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │                Neo4j 5 Community                              │     │
 │   │                graphir-neo4j (Docker)                          │     │
 │   │                                                                │     │
-│   │  Graph Schema (12 vertex types, 14 edge types):                │     │
+│   │  Graph Schema (13 vertex types, 15 edge types):                │     │
 │   │                                                                │     │
 │   │  (Process)──SPAWNED──>(Process)──ACCESSED──>(Process)          │     │
 │   │    │                    │                     lsass.exe         │     │

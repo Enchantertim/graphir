@@ -16,6 +16,7 @@ from graphir.batch_ingest import BatchIngester
 from graphir.verification import VerificationEngine
 from graphir.corrections import (
     record_correction, check_existing_corrections, get_correction_summary,
+    record_claims,
 )
 from graphir.hunts import HUNT_QUERIES
 from graphir.sigma import generate_sigma_rule, generate_rules_from_findings, write_sigma_rules
@@ -755,7 +756,8 @@ def graph_stats() -> str:
 
 @mcp.tool()
 def verify_finding(finding_type: str, narrative: str,
-                   entity_name: str, target_name: str = "") -> str:
+                   entity_name: str, target_name: str = "",
+                   materialize: bool = False) -> str:
     """Dual-path verification of a finding via atomic claim decomposition.
 
     Decomposes a narrative into atomic claims, each verified independently
@@ -830,7 +832,15 @@ def verify_finding(finding_type: str, narrative: str,
         # The verification result (INSUFFICIENT/INFERENCE/CONFIRMED) is logged
         # in the investigation log and returned to the agent for reasoning.
 
-        return json.dumps(finding.to_dict(), default=str, indent=2)
+        out = finding.to_dict()
+        if materialize:
+            # Persist the atomic claims as (:Claim) vertices so a correction can
+            # later target the assertion itself, not just the entity. Opt-in to
+            # avoid flooding the graph on exploratory verify calls.
+            out["materialized_claims"] = record_claims(
+                run_cypher, finding, entity_name, target_name,
+                _investigation_log.investigation_id)
+        return json.dumps(out, default=str, indent=2)
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -881,7 +891,8 @@ def check_provenance_integrity() -> str:
 def flag_correction(entity_name: str, correction_type: str, reason: str,
                     original_claim: str, corrected_by: str = "agent",
                     original_confidence: str = "",
-                    corrected_confidence: str = "INSUFFICIENT_EVIDENCE") -> str:
+                    corrected_confidence: str = "INSUFFICIENT_EVIDENCE",
+                    claim_id: str = "") -> str:
     """Record a correction (false positive, hallucination, retraction) in the graph.
 
     Creates a Correction node linked to the relevant entity. This is a first-class
@@ -902,12 +913,16 @@ def flag_correction(entity_name: str, correction_type: str, reason: str,
         corrected_by: Who made the correction ("agent" or analyst name)
         original_confidence: Previous confidence level
         corrected_confidence: New confidence level after correction
+        claim_id: Optional — if set, also link the Correction to the (:Claim)
+            with this id (from verify_finding materialize=True), so the correction
+            targets the assertion itself, not just the entity.
     """
     result = record_correction(
         run_cypher, correction_type, reason, original_claim, entity_name,
         corrected_by=corrected_by,
         original_confidence=original_confidence,
         corrected_confidence=corrected_confidence,
+        claim_id=claim_id,
     )
 
     # Log the correction
