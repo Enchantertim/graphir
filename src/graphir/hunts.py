@@ -298,9 +298,9 @@ HUNT_QUERIES = {
         "description": "Processes loading DLLs from non-standard locations — potential sideloading",
         "query": """
             MATCH (p:Process)-[:ACCESSED]->(f:File)
-            WHERE f.name ENDS WITH '.dll'
-              AND NOT f.path STARTS WITH 'C:\\Windows\\'
-              AND NOT f.path STARTS WITH 'C:\\Program Files'
+            WHERE toLower(f.name) ENDS WITH '.dll'
+              AND NOT toLower(f.path) STARTS WITH 'c:\\\\windows\\\\'
+              AND NOT toLower(f.path) STARTS WITH 'c:\\\\program files'
             RETURN p.name AS process, f.path AS dll_path,
                    p.timestamp AS ts
             ORDER BY p.timestamp
@@ -309,8 +309,8 @@ HUNT_QUERIES = {
         "summarize_query": """
             MATCH (p:Process)-[:ACCESSED]->(f:File)
             WHERE toLower(f.name) ENDS WITH '.dll'
-              AND NOT toLower(f.path) STARTS WITH 'c:\\windows\\'
-              AND NOT toLower(f.path) STARTS WITH 'c:\\program files'
+              AND NOT toLower(f.path) STARTS WITH 'c:\\\\windows\\\\'
+              AND NOT toLower(f.path) STARTS WITH 'c:\\\\program files'
             WITH f.path AS dll_path, count(*) AS load_count,
                  collect(DISTINCT p.name)[0..3] AS loaded_by,
                  min(p.timestamp) AS first_seen, max(p.timestamp) AS last_seen
@@ -615,7 +615,7 @@ HUNT_QUERIES = {
                    ti.detection_rate AS detections,
                    collect(DISTINCT h.hostname) AS hosts,
                    ti.first_seen_vt AS first_seen
-            ORDER BY ti.detections DESC
+            ORDER BY detections DESC
             LIMIT 20
         """,
         "tactic": "Execution",
