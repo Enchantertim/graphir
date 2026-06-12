@@ -159,28 +159,47 @@ def record_correction(run_cypher, correction_type: str, reason: str,
         return {"error": str(e)}
 
 
-def check_existing_corrections(run_cypher, entity_name: str) -> list[dict]:
-    """Check if an entity already has corrections recorded against it.
+def check_existing_corrections(run_cypher, entity_name: str,
+                               claim: str = "") -> list[dict]:
+    """Check if an entity or claim already has corrections recorded.
 
     The agent should call this before re-asserting a claim about an entity
     that was previously flagged. Prevents hallucination re-generation.
+
+    Matching is two-level:
+      - entity-level: Correction CORRECTS an entity with this name/hostname/service
+      - claim-level: the Correction's original_claim text mentions the entity or
+        overlaps the supplied claim — catches corrections whose entity link
+        failed to resolve, and corrections about the same assertion phrased
+        against a different entity
+
+    Args:
+        run_cypher: Cypher execution function
+        entity_name: Entity to check (process, user, host, service name)
+        claim: Optional claim text — also matches corrections whose
+               original_claim contains this text (case-insensitive)
     """
     results = run_cypher("""
-        MATCH (c:Correction)-[:CORRECTS]->(target)
-        WHERE target.name = $name
-           OR target.hostname = $name
-           OR target.service_name = $name
+        MATCH (c:Correction)
+        OPTIONAL MATCH (c)-[:CORRECTS]->(target)
+        WITH c, target
+        WHERE toLower(target.name) = toLower($name)
+           OR toLower(target.hostname) = toLower($name)
+           OR toLower(target.service_name) = toLower($name)
+           OR toLower(c.original_claim) CONTAINS toLower($name)
+           OR ($claim <> '' AND toLower(c.original_claim) CONTAINS toLower($claim))
         RETURN c.correction_id AS id,
                c.type AS type,
                c.reason AS reason,
                c.original_claim AS claim,
                c.corrected_by AS by,
                c.timestamp AS ts,
-               labels(target)[0] AS target_type,
+               CASE WHEN target IS NULL THEN 'claim_text_match'
+                    ELSE labels(target)[0] END AS target_type,
                target.name AS target_name
         ORDER BY c.timestamp DESC
         LIMIT 20
-    """, {"name": entity_name})
+    """, {"name": entity_name, "claim": claim})
 
     return results
 

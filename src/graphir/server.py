@@ -663,19 +663,25 @@ def flag_correction(entity_name: str, correction_type: str, reason: str,
 
 
 @mcp.tool()
-def check_corrections(entity_name: str) -> str:
-    """Check if an entity has any existing corrections recorded against it.
+def check_corrections(entity_name: str, claim: str = "") -> str:
+    """Check if an entity or claim has any existing corrections recorded.
 
     Call this BEFORE re-asserting a claim about an entity that may have been
     previously flagged. Prevents hallucination re-generation.
 
+    Matches both entity-level (Correction CORRECTS this entity) and
+    claim-level (a Correction's original_claim text mentions the entity or
+    overlaps the supplied claim text).
+
     Args:
         entity_name: The entity to check for existing corrections.
+        claim: Optional — the claim you are about to assert. Also returns
+               corrections whose original_claim contains this text.
     """
-    results = check_existing_corrections(run_cypher, entity_name)
+    results = check_existing_corrections(run_cypher, entity_name, claim)
     if not results:
         return json.dumps({"entity": entity_name, "corrections": [],
-                          "message": "No existing corrections for this entity."})
+                          "message": "No existing corrections for this entity or claim."})
     return json.dumps({"entity": entity_name, "correction_count": len(results),
                        "corrections": results}, default=str, indent=2)
 
