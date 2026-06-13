@@ -1,10 +1,10 @@
 """Render graphir's graph diagrams to SVG/PNG via Graphviz.
 
 Produces two figures in docs/img/:
-  schema.{svg,png}        — the meta-model: 13 vertex types / 15 edge types,
-                            colour-grouped by the four fractal layers
-                            (L0 investigation / L1 behaviour / L2 substance /
-                            L3 evidence).
+  schema.{svg,png}        — the meta-model: 13 entity types / 15 relationship
+                            types, grouped into subsystem clusters with the
+                            high-degree hub types (Host, User, Executable, File,
+                            Finding, Event) highlighted in blue.
   example-graph.{svg,png} — a real slice of the loaded investigation graph
                             (Incident -> Finding -> entity -> Artifact, plus a
                             verified Claim and a lateral-movement hop), queried
@@ -23,14 +23,6 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "img"
 
-# Fractal-layer palette (fill, font).
-LAYER = {
-    "L0": ("#7c3aed", "white"),   # investigation
-    "L1": ("#2563eb", "white"),   # behaviour
-    "L2": ("#0891b2", "white"),   # substance
-    "L3": ("#64748b", "white"),   # evidence
-}
-
 
 def _render(name: str, dot_src: str) -> None:
     dot_path = OUT / f"{name}.dot"
@@ -42,33 +34,33 @@ def _render(name: str, dot_src: str) -> None:
 
 
 def schema_dot() -> str:
-    """Hand-authored meta-model — stable, doesn't depend on the DB."""
-    def node(nid, label, layer):
-        fill, font = LAYER[layer]
-        return (f'  {nid} [label="{label}", style="filled,rounded", '
-                f'shape=box, fillcolor="{fill}", fontcolor="{font}", '
-                f'color="{fill}"];')
+    """Hand-authored meta-model in the domain-clustered ER-map style:
+    subsystem clusters, high-degree hub types highlighted, labelled edges.
+    """
+    HUB = "#1f6fe5"          # blue hub fill
+    LEAF = "#ededed"         # light grey leaf fill
+    # Hub = high-degree backbone types; everything else renders as a grey leaf.
+    hubs = {"Host", "User", "Executable", "File", "Finding", "Event"}
 
-    nodes = [
-        ("Incident", "Incident", "L0"),
-        ("Finding", "Finding", "L0"),
-        ("Correction", "Correction", "L0"),
-        ("Claim", "Claim", "L0"),
-        ("User", "User", "L1"),
-        ("Process", "Process", "L1"),
-        ("Host", "Host", "L2"),
-        ("Executable", "Executable", "L2"),
-        ("File", "File", "L2"),
-        ("Connection", "Connection", "L2"),
-        ("ThreatIntel", "ThreatIntel", "L2"),
-        ("Event", "Event", "L3"),
-        ("Artifact", "Artifact\\n(source file + parser)", "L3"),
+    # Domain clusters (title, members) — graphir's actual subsystems.
+    clusters = [
+        ("Investigation / Reporting", ["Incident", "Finding"]),
+        ("Verification", ["Claim", "Correction"]),
+        ("Identity", ["User"]),
+        ("Execution & Binaries", ["Process", "Executable"]),
+        ("Filesystem", ["File"]),
+        ("Hosts & Network", ["Host", "Connection"]),
+        ("Threat Intelligence", ["ThreatIntel"]),
+        ("Evidence & Provenance", ["Event", "Artifact"]),
     ]
+    labels = {"Artifact": "Artifact\\n(source file + parser)"}
     edges = [
         ("Finding", "Incident", "PART_OF"),
         ("Finding", "User", "SUPPORTED_BY"),
         ("Finding", "Executable", "SUPPORTED_BY"),
+        ("Finding", "Host", "SUPPORTED_BY"),
         ("Correction", "Claim", "CORRECTS"),
+        ("Correction", "Finding", "CORRECTS"),
         ("Claim", "User", "ABOUT"),
         ("User", "Host", "LOGGED_ON"),
         ("Process", "Process", "SPAWNED"),
@@ -83,29 +75,30 @@ def schema_dot() -> str:
         ("File", "Artifact", "DERIVED_FROM"),
         ("Executable", "Artifact", "DERIVED_FROM"),
     ]
-    clusters = {
-        "L0": ("L0 — INVESTIGATION", ["Incident", "Finding", "Correction", "Claim"]),
-        "L1": ("L1 — BEHAVIOUR", ["User", "Process"]),
-        "L2": ("L2 — SUBSTANCE", ["Host", "Executable", "File", "Connection", "ThreatIntel"]),
-        "L3": ("L3 — EVIDENCE", ["Event", "Artifact"]),
-    }
     lines = [
         'digraph graphir_schema {',
-        '  rankdir=TB; bgcolor="white"; pad=0.4; nodesep=0.4; ranksep=0.7;',
-        '  node [fontname="Helvetica", fontsize=11];',
-        '  edge [fontname="Helvetica", fontsize=9, color="#94a3b8", fontcolor="#475569"];',
-        '  labelloc="t"; fontsize=16; fontname="Helvetica-Bold";',
-        '  label="graphir graph schema — 13 vertex types, 15 edge types\\l'
-        'fractal: Incident -> Finding -> entity -> Artifact (case narrative to raw line)\\l";',
+        '  rankdir=TB; bgcolor="white"; pad=0.5; nodesep=0.35; ranksep=0.9;',
+        '  compound=true; splines=true; concentrate=false;',
+        '  node [shape=box, style=filled, fontname="Helvetica", fontsize=11,'
+        f'        fillcolor="{LEAF}", color="#c4c4c4", fontcolor="#1a1a1a", penwidth=1];',
+        '  edge [fontname="Helvetica", fontsize=8, color="#9aa0a6",'
+        '        fontcolor="#5f6368", arrowsize=0.7, penwidth=0.9];',
+        '  labelloc="t"; fontsize=17; fontname="Helvetica-Bold"; fontcolor="#1a1a1a";',
+        '  label="graphir graph schema — 13 entity types, 15 relationship types\\l'
+        '(blue = high-degree hub types; clusters = subsystems)\\l";',
     ]
-    for layer, (title, members) in clusters.items():
-        fill, _ = LAYER[layer]
-        lines.append(f'  subgraph cluster_{layer} {{')
-        lines.append(f'    label="{title}"; style="rounded,dashed"; '
-                     f'color="{fill}"; fontcolor="{fill}"; fontsize=12;')
-        for nid, label, lyr in nodes:
-            if nid in members:
-                lines.append("  " + node(nid, label, lyr))
+    for i, (title, members) in enumerate(clusters):
+        lines.append(f'  subgraph cluster_{i} {{')
+        lines.append(f'    label="{title}"; labelloc="t"; fontsize=10;'
+                     '    style="filled,rounded"; fillcolor="#fbfbfb";'
+                     '    color="#d0d0d0"; fontcolor="#8a8a8a";')
+        for nid in members:
+            label = labels.get(nid, nid)
+            if nid in hubs:
+                lines.append(f'    {nid} [label="{label}", fillcolor="{HUB}", '
+                             f'fontcolor="white", color="{HUB}"];')
+            else:
+                lines.append(f'    {nid} [label="{label}"];')
         lines.append('  }')
     for s, d, lbl in edges:
         style = ' style=dashed' if lbl in ("DERIVED_FROM", "ENRICHED_BY") else ''
@@ -164,7 +157,7 @@ def example_dot(run_cypher) -> str:
         '  labelloc="t"; fontsize=15; fontname="Helvetica-Bold";',
         '  label="graphir — live investigation slice (SANS 508 / SHIELDBASE)\\l'
         'Incident -> Finding -> entity -> Artifact, with a verified Claim\\l";',
-        f'  INC [label="Incident\\n{inc}", fillcolor="#7c3aed", fontcolor="white", color="#7c3aed"];',
+        f'  INC [label="Incident\\n{inc}", fillcolor="#ededed", fontcolor="#1a1a1a", color="#c4c4c4"];',
     ]
     seen = set()
 
@@ -172,16 +165,18 @@ def example_dot(run_cypher) -> str:
         nid = f"{lbl}_{abs(hash(name)) % 100000}"
         if nid not in seen:
             seen.add(nid)
-            fill = {"User": "#2563eb", "Host": "#0891b2",
-                    "Executable": "#0891b2", "File": "#0891b2"}.get(lbl, "#64748b")
-            lines.append(f'  {nid} [label="{lbl}\\n{short(name)}", '
-                         f'fillcolor="{fill}", fontcolor="white", color="{fill}"];')
+            if lbl in ("User", "Host", "Executable", "File"):  # hub types
+                lines.append(f'  {nid} [label="{lbl}\\n{short(name)}", '
+                             f'fillcolor="#1f6fe5", fontcolor="white", color="#1f6fe5"];')
+            else:
+                lines.append(f'  {nid} [label="{lbl}\\n{short(name)}", '
+                             f'fillcolor="#ededed", fontcolor="#1a1a1a", color="#c4c4c4"];')
         return nid
 
     for f in findings:
         fid = f"F_{f['id'][:8]}"
         lines.append(f'  {fid} [label="Finding\\n{f["phase"]}\\n{f["conf"]} ({f["tech"]})", '
-                     f'fillcolor="#7c3aed", fontcolor="white", color="#7c3aed"];')
+                     f'fillcolor="#1f6fe5", fontcolor="white", color="#1f6fe5"];')
         lines.append(f'  {fid} -> INC [label="PART_OF"];')
     for s in support:
         fid = f"F_{s['fid'][:8]}"
@@ -193,14 +188,14 @@ def example_dot(run_cypher) -> str:
         if aid not in seen:
             seen.add(aid)
             lines.append(f'  {aid} [label="Artifact\\n{short(d["artifact"])}", '
-                         f'fillcolor="#64748b", fontcolor="white", color="#64748b"];')
+                         f'fillcolor="#ededed", fontcolor="#1a1a1a", color="#c4c4c4"];')
         lines.append(f'  {en} -> {aid} [label="DERIVED_FROM\\nline {d["line"]}", style=dashed];')
     for c in claim:
         cid = f"CL_{c['id'][:8]}"
         if cid not in seen:
             seen.add(cid)
             lines.append(f'  {cid} [label="Claim\\n{c["conf"]}", '
-                         f'fillcolor="#7c3aed", fontcolor="white", color="#7c3aed"];')
+                         f'fillcolor="#ededed", fontcolor="#1a1a1a", color="#c4c4c4"];')
         en = ent_node(c["lbl"], c["name"])
         lines.append(f'  {cid} -> {en} [label="ABOUT"];')
     lines.append('}')
