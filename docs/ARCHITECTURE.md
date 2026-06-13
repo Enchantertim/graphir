@@ -85,6 +85,17 @@ relationships between them, and provenance edges pointing one level down.
 An investigator should be able to zoom from the incident narrative to the
 raw artifact line without leaving the graph.
 
+![graphir graph schema](img/schema.svg)
+
+A live slice of an investigation graph — `Incident → Finding → entity → Artifact`,
+with a structurally verified `Claim` (real data, SANS 508 / SHIELDBASE):
+
+![live investigation slice](img/example-graph.svg)
+
+Both figures are regenerated from the live graph with
+`python scripts/render_diagrams.py` (requires Graphviz). The same schema as a
+Mermaid source (renders inline on GitHub):
+
 ```mermaid
 graph TB
     subgraph L0["L0 — INVESTIGATION (the analyst's mental model)"]

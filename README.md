@@ -58,66 +58,34 @@ as clean with IR responder activity only.
 
 ## Architecture
 
-```
-                    ┌─────────────────────────────────────────┐
-                    │           Claude Code (LLM)              │
-                    │    Autonomous IR Analyst reasoning        │
-                    │    "find evil" / "who did this?"          │
-                    ├──────────────┬──────────────────────────┤
-                    │              │ MCP (stdio, typed tools)  │
-                    │              ▼                            │
-                    │   ┌──────────────────────┐               │
-                    │   │   graphir MCP Server  │               │
-                    │   │   20 typed tools      │               │
-                    │   │                        │               │
-                    │   │  Investigation:        │               │
-                    │   │   ingest_timeline      │               │
-                    │   │   query_graph (R/O)    │               │
-                    │   │   find_evil            │               │
-                    │   │   shortest_path        │               │
-                    │   │   entity_neighborhood  │               │
-                    │   │   temporal_chain        │               │
-                    │   │   graph_stats          │               │
-                    │   │                        │               │
-                    │   │  Verification:         │               │
-                    │   │   verify_finding       │               │
-                    │   │   trace_origin         │               │
-                    │   │   check_provenance     │               │
-                    │   │    _integrity          │               │
-                    │   │                        │               │
-                    │   │  Corrections:          │               │
-                    │   │   flag_correction      │               │
-                    │   │   check_corrections    │               │
-                    │   │   investigation_summary│               │
-                    │   └──────────┬─────────────┘               │
-                    │              │ Bolt protocol               │
-                    │              ▼                              │
-                    │   ┌──────────────────────┐                 │
-                    │   │   Neo4j 5 Community   │                 │
-                    │   │   graphir-neo4j       │                 │
-                    │   │                        │                 │
-                    │   │   Vertices:            │                 │
-                    │   │    Host, User, Process │                 │
-                    │   │    Executable, File,   │                 │
-                    │   │    Connection, Event,  │                 │
-                    │   │    Correction          │                 │
-                    │   │                        │                 │
-                    │   │   Edges:               │                 │
-                    │   │    EXECUTED_ON, SPAWNED │                 │
-                    │   │    ACCESSED,            │                 │
-                    │   │    CONNECTED_TO,        │                 │
-                    │   │    LOGGED_ON, MODIFIED  │                 │
-                    │   │    HAS_EXECUTABLE,      │                 │
-                    │   │    ON_HOST, CORRECTS    │                 │
-                    │   └────────────────────────┘                 │
-                    └─────────────────────────────────────────────┘
+graphir bridges Claude Code to a Neo4j investigation graph over MCP. Constraints
+are enforced at the type-system level, not by prompts: Claude can only call typed
+tools (no shell), every query is parameterised Cypher, and `query_graph` is
+read-only at the database protocol layer.
 
-Trust boundaries:
-  Claude Code ←→ MCP Server : typed function interface (no shell access)
-  MCP Server  ←→ Neo4j     : parameterised Cypher (no injection)
-                               query_graph enforces read-only at application layer
-  MCP Server  ←→ SIFT tools: subprocess with validated arguments
-```
+The graph schema is a four-level **fractal** — the same node→relationship→provenance
+shape repeats at every zoom level, so an investigator can move from the incident
+narrative down to the raw source line without leaving the graph:
+
+**L0 Investigation** (Incident, Finding, Claim, Correction) → **L1 Behaviour**
+(User, Process) → **L2 Substance** (Host, Executable, File, …) → **L3 Evidence**
+(Event, Artifact → raw Plaso line).
+
+![graphir graph schema](docs/img/schema.svg)
+
+A real slice of an investigation graph (SANS 508 / SHIELDBASE) — `Incident →
+Finding → entity → Artifact`, with a structurally verified `Claim`:
+
+![live investigation slice](docs/img/example-graph.svg)
+
+Diagrams are regenerated from the live graph with
+`python scripts/render_diagrams.py` (requires Graphviz). Full detail, trust
+boundaries, and the live-coverage table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+**Trust boundaries:**
+- Claude Code ←→ MCP Server: typed function interface, no shell access
+- MCP Server ←→ Neo4j: parameterised Cypher; `query_graph` read-only at the protocol layer
+- MCP Server ←→ SIFT tools: subprocess with validated arguments
 
 ## How It Works
 
