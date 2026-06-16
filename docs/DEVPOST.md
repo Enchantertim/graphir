@@ -56,7 +56,7 @@ graphir works on whatever evidence you could actually collect during an active i
 
 ## Accomplishments we're proud of
 
-**Validated against a real compromised machine.** graphir autonomously found 7 of 8 indicators from a real 2011 Philips CSIRT investigation of a compromised Windows XP workstation: PsExec lateral movement, NETLOGON malware distribution from a compromised DC, admin$ payload deployment, scheduled task abuse, and persistence DLLs masquerading as Office/ADO components. The only missed finding (spoolsv.exe C2 beacon) required memory analysis.
+**Validated against a real compromised machine.** graphir autonomously found 7 of 8 indicators from a real 2011 CSIRT investigation of a compromised Windows XP workstation: PsExec lateral movement, NETLOGON malware distribution from a compromised DC, admin$ payload deployment, scheduled task abuse, and persistence DLLs masquerading as Office/ADO components. The only missed finding (spoolsv.exe C2 beacon) required memory analysis.
 
 **MACB-aware filesystem analysis.** Files carry born/modified/accessed/changed timestamps as separate properties. The `recent_executables_by_date` hunt found mso11.dll and ado.dll — two persistence DLLs born within 1 second of each other on the incident date, hiding among thousands of legitimate files in C:\Program Files\Common Files\.
 
