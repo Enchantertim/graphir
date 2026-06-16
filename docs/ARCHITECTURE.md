@@ -41,7 +41,7 @@ graphir is a Model Context Protocol (MCP) server that bridges Claude Code to a N
 │   │         └────────────┬────┘───────────────────┘            │     │
 │   │                      │                                      │     │
 │   │              Parameterised Cypher                           │     │
-│   │              (no string interpolation)                      │     │
+│   │              (external input: $params)                      │     │
 │   │                      │                                      │     │
 │   └──────────────────────┼──────────────────────────────────────┘     │
 │                          │                                             │
@@ -170,8 +170,8 @@ on a host without 4688 auditing) will return ABSENT_DATA — this is the
 ### Boundary 2: MCP Server ↔ Neo4j
 
 - **Interface:** Bolt protocol with parameterised Cypher
-- **Constraint:** All Cypher queries use `$parameters`, never string interpolation. This prevents Cypher injection the same way parameterised SQL prevents SQL injection.
-- **Why this matters:** The `query_graph` tool accepts arbitrary Cypher from the agent. Parameterisation ensures the agent's queries are syntactically constrained even when semantically open-ended.
+- **Constraint:** Agent- and LLM-supplied values reach Cypher only as `$parameters`. Query *construction* interpolates only code-controlled constants (variable-length path bounds clamped to ≤4, integer thresholds, fixed node labels), never external input — so there is no Cypher-injection path. The one tool that accepts arbitrary agent-authored Cypher (`query_graph`) is additionally constrained to a read-only transaction.
+- **Why this matters:** `query_graph` is intentionally open-ended in *read* power. Running it via `session.execute_read()` makes it incapable of writing or mutating the graph — enforced by Neo4j itself, not by inspecting the query text (an earlier keyword-matching guard proved bypassable via APOC `doIt`).
 
 ### Boundary 3: MCP Server ↔ SIFT Tools
 
