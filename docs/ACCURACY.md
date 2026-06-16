@@ -111,11 +111,11 @@ graphir is tested against publicly available, labelled forensic datasets where g
 ### Preliminary Results
 
 **Win11 Pro 26H1 corporate workstation (clean machine):**
-Tested against a 5M event Plaso timeline (487K deduplicated events in 90 seconds):
+Tested against a 4.7M event Plaso timeline (678K events ingested in ~90 seconds):
 
 | Metric | Result |
 |--------|--------|
-| Provenance coverage | 99.9% |
+| Provenance coverage | 99.6% |
 | True positive verification | SYSTEM Type 3 logon → CONFIRMED |
 | True negative verification | notepad.exe LSASS → INSUFFICIENT_EVIDENCE (rejected) |
 | Contradictory detection | a-gpetrus Type 2 logon → CONTRADICTORY (not lateral movement) |

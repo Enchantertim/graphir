@@ -48,7 +48,7 @@ graphir works on whatever evidence you could actually collect during an active i
 
 **Case-sensitive evasion.** Hunt patterns using `CONTAINS` were case-sensitive — an attacker typing `powershell -eNc` instead of `-enc` would bypass detection. All hunt queries now use `toLower()` for case-insensitive matching.
 
-**Event duplication on re-ingest.** Running ingestion twice on the same timeline doubled every Event node. Added deterministic SHA-256 event hashing with MERGE instead of CREATE — safe to re-ingest, deduplication is automatic (974K → 487K on first test).
+**Event duplication on re-ingest.** Running ingestion twice on the same timeline doubled every Event node. Added deterministic SHA-256 event hashing with MERGE instead of CREATE — safe to re-ingest, deduplication is automatic and idempotent — the same event always hashes to the same node.
 
 **Absent vs Contradictory evidence.** Early verification couldn't distinguish "no evidence found" from "evidence found but it contradicts the claim." Redesigned predicates to return data with `is_expected` evaluation flags, enabling three-state detection. A user with only Type 2 (interactive) logons is now flagged as CONTRADICTORY for a lateral movement claim, not just ABSENT.
 
@@ -64,7 +64,7 @@ graphir works on whatever evidence you could actually collect during an active i
 
 **Self-correction in practice.** On the XP investigation, the agent initially flagged RECYCLER\Dc##.exe files as "malware hiding in recycle bin." After investigating (querying the subdirectory, finding Xerox printer driver DLLs), it self-corrected with a flag_correction — recording why the initial assessment was wrong.
 
-**Provenance coverage.** 99.7% of entities traceable to raw artifacts. An auditor can walk from any finding to the exact source line in the Plaso JSONL.
+**Provenance coverage.** 99.6% of entities traceable to raw artifacts. An auditor can walk from any finding to the exact source line in the Plaso JSONL.
 
 **Honest accuracy reporting.** The system reports what it cannot prove. All XP findings are INFERENCE (not CONFIRMED) because XP lacks EVTX process chains — and the report explains why.
 
